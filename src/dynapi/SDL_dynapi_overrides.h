@@ -773,6 +773,7 @@
 #define SDL_RenderTexture SDL_RenderTexture_REAL
 #define SDL_RenderTexture9Grid SDL_RenderTexture9Grid_REAL
 #define SDL_RenderTextureRotated SDL_RenderTextureRotated_REAL
+#define SDL_RenderTextureRotatedEx SDL_RenderTextureRotatedEx_REAL
 #define SDL_RenderTextureTiled SDL_RenderTextureTiled_REAL
 #define SDL_RenderViewportSet SDL_RenderViewportSet_REAL
 #define SDL_ReportAssertion SDL_ReportAssertion_REAL

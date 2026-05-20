@@ -2304,6 +2304,34 @@ extern SDL_DECLSPEC bool SDLCALL SDL_RenderTextureRotated(SDL_Renderer *renderer
                                                      SDL_FlipMode flip);
 
 /**
+ * Copy a texture to the current rendering target with rotation, flip, and
+ * per-vertex colors, at subpixel precision.
+ *
+ * Identical to SDL_RenderTextureRotated but accepts an array of 4 SDL_FColor
+ * values (one per corner: top-left, top-right, bottom-right, bottom-left)
+ * that are interpolated across the quad.  Pass NULL to use the texture's
+ * current color mod for all vertices.
+ *
+ * \param renderer the renderer which should copy parts of a texture.
+ * \param texture the source texture.
+ * \param srcrect a pointer to the source rectangle, or NULL for the entire texture.
+ * \param dstrect a pointer to the destination rectangle, or NULL for the entire target.
+ * \param angle an angle in degrees that indicates the rotation that will be applied to dstrect, rotating it in a clockwise direction.
+ * \param center a pointer to a point indicating the point around which dstrect will be rotated (if NULL, rotation will be done around dstrect.w/2, dstrect.h/2).
+ * \param flip a SDL_FlipMode value stating which flipping actions should be performed on the texture.
+ * \param colors an array of 4 SDL_FColor values for the quad corners (TL, TR, BR, BL), or NULL.
+ * \returns true on success or false on failure; call SDL_GetError() for more information.
+ *
+ * \since This function is available since SDL 3.2.0.
+ *
+ * \sa SDL_RenderTextureRotated
+ */
+extern SDL_DECLSPEC bool SDLCALL SDL_RenderTextureRotatedEx(SDL_Renderer *renderer, SDL_Texture *texture,
+                                                       const SDL_FRect *srcrect, const SDL_FRect *dstrect,
+                                                       double angle, const SDL_FPoint *center,
+                                                       SDL_FlipMode flip, const SDL_FColor colors[4]);
+
+/**
  * Copy a portion of the source texture to the current rendering target, with
  * affine transform, at subpixel precision.
  *

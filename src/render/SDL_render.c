@@ -4397,6 +4397,113 @@ bool SDL_RenderTextureRotated(SDL_Renderer *renderer, SDL_Texture *texture,
     return result;
 }
 
+bool SDL_RenderTextureRotatedEx(SDL_Renderer *renderer, SDL_Texture *texture,
+                                const SDL_FRect *srcrect, const SDL_FRect *dstrect,
+                                double angle, const SDL_FPoint *center,
+                                SDL_FlipMode flip, const SDL_FColor colors[4])
+{
+    if (!colors) {
+        return SDL_RenderTextureRotated(renderer, texture, srcrect, dstrect, angle, center, flip);
+    }
+
+    SDL_FRect real_srcrect;
+    SDL_FPoint real_center;
+
+    if (flip == SDL_FLIP_NONE && (int)(angle / 360) == angle / 360) {
+        /* fast path: no rotation — fall back to RenderGeometry directly */
+    }
+
+    CHECK_RENDERER_MAGIC(renderer, false);
+    CHECK_TEXTURE_MAGIC(texture, false);
+
+    CHECK_PARAM(renderer != texture->renderer) {
+        return SDL_SetError("Texture was not created with this renderer");
+    }
+
+    real_srcrect.x = 0.0f;
+    real_srcrect.y = 0.0f;
+    real_srcrect.w = (float)texture->w;
+    real_srcrect.h = (float)texture->h;
+    if (srcrect) {
+        if (!SDL_GetRectIntersectionFloat(srcrect, &real_srcrect, &real_srcrect)) {
+            return true;
+        }
+    }
+
+    SDL_FRect full_dstrect;
+    if (!dstrect) {
+        GetRenderViewportSize(renderer, &full_dstrect);
+        dstrect = &full_dstrect;
+    }
+
+    if (!UpdateTexturePalette(texture)) {
+        return false;
+    }
+
+    if (texture->native) {
+        texture = texture->native;
+    }
+
+    if (center) {
+        real_center = *center;
+    } else {
+        real_center.x = dstrect->w / 2.0f;
+        real_center.y = dstrect->h / 2.0f;
+    }
+
+    texture->last_command_generation = renderer->render_command_generation;
+
+    const SDL_RenderViewState *view = renderer->view;
+    const float scale_x = view->current_scale.x;
+    const float scale_y = view->current_scale.y;
+
+    float xy[8];
+    const int xy_stride = 2 * sizeof(float);
+    float uv[8];
+    const int uv_stride = 2 * sizeof(float);
+    const int num_vertices = 4;
+    const int *indices = rect_index_order;
+    const int num_indices = 6;
+    const int size_indices = 4;
+
+    float minu = real_srcrect.x / texture->w;
+    float minv = real_srcrect.y / texture->h;
+    float maxu = (real_srcrect.x + real_srcrect.w) / texture->w;
+    float maxv = (real_srcrect.y + real_srcrect.h) / texture->h;
+
+    float centerx = real_center.x + dstrect->x;
+    float centery = real_center.y + dstrect->y;
+
+    float minx = (flip & SDL_FLIP_HORIZONTAL) ? dstrect->x + dstrect->w : dstrect->x;
+    float maxx = (flip & SDL_FLIP_HORIZONTAL) ? dstrect->x : dstrect->x + dstrect->w;
+    float miny = (flip & SDL_FLIP_VERTICAL)   ? dstrect->y + dstrect->h : dstrect->y;
+    float maxy = (flip & SDL_FLIP_VERTICAL)   ? dstrect->y : dstrect->y + dstrect->h;
+
+    uv[0] = minu; uv[1] = minv;
+    uv[2] = maxu; uv[3] = minv;
+    uv[4] = maxu; uv[5] = maxv;
+    uv[6] = minu; uv[7] = maxv;
+
+    const float radian_angle = (float)((SDL_PI_D * angle) / 180.0);
+    const float s = SDL_sinf(radian_angle);
+    const float c = SDL_cosf(radian_angle);
+
+    float s_minx = s * (minx - centerx), s_miny = s * (miny - centery);
+    float s_maxx = s * (maxx - centerx), s_maxy = s * (maxy - centery);
+    float c_minx = c * (minx - centerx), c_miny = c * (miny - centery);
+    float c_maxx = c * (maxx - centerx), c_maxy = c * (maxy - centery);
+
+    xy[0] = (c_minx - s_miny) + centerx; xy[1] = (s_minx + c_miny) + centery;
+    xy[2] = (c_maxx - s_miny) + centerx; xy[3] = (s_maxx + c_miny) + centery;
+    xy[4] = (c_maxx - s_maxy) + centerx; xy[5] = (s_maxx + c_maxy) + centery;
+    xy[6] = (c_minx - s_maxy) + centerx; xy[7] = (s_minx + c_maxy) + centery;
+
+    return QueueCmdGeometry(renderer, texture,
+                            xy, xy_stride, colors, sizeof(SDL_FColor) /* per-vertex color stride */, uv, uv_stride,
+                            num_vertices, indices, num_indices, size_indices,
+                            scale_x, scale_y, SDL_TEXTURE_ADDRESS_CLAMP, SDL_TEXTURE_ADDRESS_CLAMP);
+}
+
 static bool SDL_RenderTextureTiled_Wrap(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_FRect *srcrect, float scale, const SDL_FRect *dstrect)
 {
     float xy[8];

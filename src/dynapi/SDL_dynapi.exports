@@ -747,6 +747,7 @@ _SDL_RenderRects
 _SDL_RenderTexture9Grid
 _SDL_RenderTexture
 _SDL_RenderTextureRotated
+_SDL_RenderTextureRotatedEx
 _SDL_RenderTextureTiled
 _SDL_RenderViewportSet
 _SDL_ReportAssertion
