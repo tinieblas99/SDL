@@ -59,6 +59,8 @@ LOCAL_SRC_FILES := \
 	$(wildcard $(LOCAL_PATH)/src/main/generic/*.c) \
 	$(wildcard $(LOCAL_PATH)/src/misc/*.c) \
 	$(wildcard $(LOCAL_PATH)/src/misc/android/*.c) \
+	$(wildcard $(LOCAL_PATH)/src/notification/*.c) \
+	$(wildcard $(LOCAL_PATH)/src/notification/dummy/*.c) \
 	$(wildcard $(LOCAL_PATH)/src/power/*.c) \
 	$(wildcard $(LOCAL_PATH)/src/power/android/*.c) \
 	$(wildcard $(LOCAL_PATH)/src/process/*.c) \
@@ -115,6 +117,19 @@ ifeq ($(NDK_DEBUG),1)
 endif
 
 include $(BUILD_SHARED_LIBRARY)
+
+
+###########################
+#
+# SDL static library
+#
+###########################
+
+LOCAL_MODULE := SDL3_static
+
+LOCAL_MODULE_FILENAME := libSDL3
+
+include $(BUILD_STATIC_LIBRARY)
 
 
 ###########################

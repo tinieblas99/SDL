@@ -195,3 +195,34 @@ Sint32 JNI_OnLoad(JavaVM *vm, void *reserved)
     return 0x00010004; // JNI_VERSION_1_4
 }
 #endif
+
+#ifndef SDL_PLATFORM_LINUX
+
+bool SDL_IsUbuntuTouch(void)
+{
+    return false;
+}
+
+#endif
+
+#ifndef SDL_PLATFORM_OPENHARMONY
+const char *SDL_GetOpenHarmonyInternalStoragePath(void)
+{
+    SDL_Unsupported();
+    return NULL;
+}
+
+int SDL_GetOpenHarmonySDKVersion(void)
+{
+    return SDL_Unsupported();
+}
+
+bool SDL_RequestOpenHarmonyPermission(const char *permission, SDL_RequestOpenHarmonyPermissionCallback cb, void *userdata)
+{
+    (void)permission;
+    (void)cb;
+    (void)userdata;
+    return SDL_Unsupported();
+}
+#endif
+

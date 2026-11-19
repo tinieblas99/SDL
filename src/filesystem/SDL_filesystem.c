@@ -375,7 +375,7 @@ char **SDL_InternalGlobDirectory(const char *path, const char *pattern, SDL_Glob
     size_t pathlen = SDL_strlen(path);
 
     // if path ends with any slash, chop them off, so we don't confuse the pattern matcher later.
-    #ifdef SDL_PLATFORM_ANDROID
+    #if defined(SDL_PLATFORM_ANDROID) || defined(SDL_PLATFORM_OPENHARMONY)
     if (SDL_strcmp(path, "assets://") == 0) {  // don't chop '//' off this if we're looking for the root of the asset tree.
         pathlen--;  // we'll add a 1 again later.
     } else
@@ -518,6 +518,14 @@ const char *SDL_GetUserFolder(SDL_Folder folder)
     return CachedUserFolders[idx];
 }
 
+static char *CachedExeName = NULL;
+const char *SDL_GetExeName(void)
+{
+    if (!CachedExeName) {
+        CachedExeName = SDL_SYS_GetExeName();
+    }
+    return CachedExeName;
+}
 
 char *SDL_GetPrefPath(const char *org, const char *app)
 {
@@ -545,10 +553,12 @@ void SDL_InitFilesystem(void)
 
 void SDL_QuitFilesystem(void)
 {
-    if (CachedBasePath) {
-        SDL_free(CachedBasePath);
-        CachedBasePath = NULL;
-    }
+    SDL_free(CachedBasePath);
+    CachedBasePath = NULL;
+
+    SDL_free(CachedExeName);
+    CachedExeName = NULL;
+
     for (int i = 0; i < SDL_arraysize(CachedUserFolders); i++) {
         if (CachedUserFolders[i]) {
             SDL_free(CachedUserFolders[i]);

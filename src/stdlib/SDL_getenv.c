@@ -22,7 +22,7 @@
 
 #include "SDL_getenv_c.h"
 
-#if defined(SDL_PLATFORM_WINDOWS)
+#if defined(SDL_PLATFORM_WINDOWS) && !defined(SDL_PLATFORM_CYGWIN)
 #include "../core/windows/SDL_windows.h"
 #endif
 
@@ -30,7 +30,7 @@
 #include "../core/android/SDL_android.h"
 #endif
 
-#if defined(SDL_PLATFORM_WINDOWS)
+#if defined(SDL_PLATFORM_WINDOWS) && !defined(SDL_PLATFORM_CYGWIN)
 #define HAVE_WIN32_ENVIRONMENT
 #elif defined(HAVE_GETENV) && \
       (defined(HAVE_SETENV) || defined(HAVE_PUTENV)) && \
@@ -93,17 +93,21 @@ SDL_Environment *SDL_CreateEnvironment(bool populated)
         return NULL;
     }
 
-    env->strings = SDL_CreateHashTable(0, false, SDL_HashString, SDL_KeyMatchString, SDL_DestroyHashKey, NULL);
-    if (!env->strings) {
+    env->lock = SDL_CreateMutex();
+    if (!env->lock) {
         SDL_free(env);
         return NULL;
     }
 
-    // Don't fail if we can't create a mutex (e.g. on a single-thread environment)  // !!! FIXME: single-threaded environments should still return a non-NULL, do-nothing object here. Check for failure!
-    env->lock = SDL_CreateMutex();
+    env->strings = SDL_CreateHashTable(0, false, SDL_HashString, SDL_KeyMatchString, SDL_DestroyHashKey, NULL);
+    if (!env->strings) {
+        SDL_DestroyMutex(env->lock);
+        SDL_free(env);
+        return NULL;
+    }
 
     if (populated) {
-#ifdef SDL_PLATFORM_WINDOWS
+#if defined(SDL_PLATFORM_WINDOWS) && !defined(SDL_PLATFORM_CYGWIN)
         LPWCH strings = GetEnvironmentStringsW();
         if (strings) {
             for (LPWCH string = strings; *string; string += SDL_wcslen(string) + 1) {
@@ -118,6 +122,11 @@ SDL_Environment *SDL_CreateEnvironment(bool populated)
                     continue;
                 }
                 *value++ = '\0';
+
+                // uppercase ASCII chars in environment variable names on Windows, since the system environment table is case-insensitive.
+                for (char *ptr = variable; *ptr; ptr++) {
+                    *ptr = (char) SDL_toupper((int) *ptr);  // the only UTF-8 bytes that don't have the high-bit set are single-byte ASCII chars, so SDL_toupper will leave multichar stuff alone.
+                }
 
                 SDL_InsertIntoHashTable(env->strings, variable, value, true);
             }
@@ -143,10 +152,17 @@ SDL_Environment *SDL_CreateEnvironment(bool populated)
                 }
                 *value++ = '\0';
 
+#ifdef SDL_PLATFORM_CYGWIN
+                // uppercase ASCII chars in environment variable names on Windows, since the system environment table is case-insensitive.
+                for (char *ptr = variable; *ptr; ptr++) {
+                    *ptr = (char) SDL_toupper((int) *ptr);  // the only UTF-8 bytes that don't have the high-bit set are single-byte ASCII chars, so SDL_toupper will leave multichar stuff alone.
+                }
+#endif
+
                 SDL_InsertIntoHashTable(env->strings, variable, value, true);
             }
         }
-#endif // SDL_PLATFORM_WINDOWS
+#endif // SDL_PLATFORM_WINDOWS && !SDL_PLATFORM_CYGWIN
     }
 
     return env;

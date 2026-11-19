@@ -29,6 +29,9 @@
 // The default mouse input device, for platforms that don't have multiple mice
 #define SDL_DEFAULT_MOUSE_ID    1
 
+// Set on surfaces created by SDL_CreateCursor(), which may have inverted pixels
+#define SDL_PROP_SURFACE_MONOCHROME_CURSOR_BOOLEAN "SDL.internal.surface.monochrome_cursor"
+
 typedef struct SDL_CursorData SDL_CursorData;
 
 struct SDL_Cursor;
@@ -136,6 +139,7 @@ typedef struct
     bool warp_emulation_hint;
     bool warp_emulation_active;
     bool warp_emulation_prohibited;
+    bool have_explicit_warp_event;
     Uint64 last_center_warp_time_ns;
     bool enable_normal_speed_scale;
     float normal_speed_scale;
@@ -209,6 +213,9 @@ extern bool SDL_UpdateMouseCapture(bool force_release);
 
 // Send a mouse motion event
 extern void SDL_SendMouseMotion(Uint64 timestamp, SDL_Window *window, SDL_MouseID mouseID, bool relative, float x, float y);
+
+// Send a mouse motion event resulting from a pointer warp
+extern void SDL_SendMouseWarp(Uint64 timestamp, SDL_Window *window, SDL_MouseID mouseID, float x, float y);
 
 // Send a mouse button event
 extern void SDL_SendMouseButton(Uint64 timestamp, SDL_Window *window, SDL_MouseID mouseID, Uint8 button, bool down);

@@ -22,7 +22,10 @@
 
 #ifdef SDL_VIDEO_RENDER_GPU
 
+#include "../../events/SDL_windowevents_c.h"
 #include "../../video/SDL_pixels_c.h"
+#include "../../video/SDL_sysvideo.h"
+#include "../../video/SDL_yuv_c.h"
 #include "../SDL_d3dmath.h"
 #include "../SDL_sysrender.h"
 #include "SDL_gpu_util.h"
@@ -41,7 +44,7 @@ typedef struct GPU_SimpleFragmentShaderUniformData
 
 typedef struct GPU_AdvancedFragmentShaderUniformData
 {
-    float scRGB_output;
+    float output_type;
     float texture_type;
     float input_type;
     float color_scale;
@@ -80,6 +83,10 @@ static const float INPUTTYPE_UNSPECIFIED = 0;
 static const float INPUTTYPE_SRGB = 1;
 static const float INPUTTYPE_SCRGB = 2;
 static const float INPUTTYPE_HDR10 = 3;
+
+static const float OUTPUTTYPE_SRGB = 1;
+static const float OUTPUTTYPE_SCRGB = 2;
+static const float OUTPUTTYPE_HDR10 = 3;
 
 typedef struct GPU_RenderData
 {
@@ -138,7 +145,6 @@ typedef struct GPU_TextureData
     int pitch;
     SDL_Rect locked_rect;
     const float *YCbCr_matrix;
-#ifdef SDL_HAVE_YUV
     // YV12 texture support
     bool yuv;
     bool external_texture_u;
@@ -150,7 +156,6 @@ typedef struct GPU_TextureData
     bool nv12;
     bool external_texture_nv;
     SDL_GPUTexture *textureNV;
-#endif
 } GPU_TextureData;
 
 // TODO: Sort this list based on what the GPU driver prefers?
@@ -286,18 +291,23 @@ static bool GPU_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture, SDL_
     case SDL_PIXELFORMAT_INDEX8:
     case SDL_PIXELFORMAT_YV12:
     case SDL_PIXELFORMAT_IYUV:
+    case SDL_PIXELFORMAT_I444:
     case SDL_PIXELFORMAT_NV12:
     case SDL_PIXELFORMAT_NV21:
         format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
         break;
     case SDL_PIXELFORMAT_P010:
+    case SDL_PIXELFORMAT_I0FL:
+    case SDL_PIXELFORMAT_I4FL:
         format = SDL_GPU_TEXTUREFORMAT_R16_UNORM;
         break;
     default:
         format = SDL_GetGPUTextureFormatFromPixelFormat(texture->format);
         break;
     }
-    if (renderer->output_colorspace == SDL_COLORSPACE_SRGB_LINEAR) {
+    // Render targets use formats matching their own colorspace, so an sRGB target behaves like an sRGB swap chain
+    const SDL_Colorspace format_colorspace = (texture->access == SDL_TEXTUREACCESS_TARGET) ? texture->colorspace : renderer->output_colorspace;
+    if (format_colorspace == SDL_COLORSPACE_SRGB_LINEAR) {
         switch (format) {
         case SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM:
             format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB;
@@ -316,23 +326,18 @@ static bool GPU_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture, SDL_
     data->format = format;
 
     if (texture->access == SDL_TEXTUREACCESS_STREAMING) {
-        size_t size;
-        data->pitch = texture->w * SDL_BYTESPERPIXEL(texture->format);
-        size = (size_t)texture->h * data->pitch;
-        if (texture->format == SDL_PIXELFORMAT_YV12 ||
-            texture->format == SDL_PIXELFORMAT_IYUV) {
-            // Need to add size for the U and V planes
-            size += 2 * ((texture->h + 1) / 2) * ((data->pitch + 1) / 2);
-        }
-        if (texture->format == SDL_PIXELFORMAT_NV12 ||
-            texture->format == SDL_PIXELFORMAT_NV21 ||
-            texture->format == SDL_PIXELFORMAT_P010) {
-            // Need to add size for the U/V plane
-            size += 2 * ((texture->h + 1) / 2) * ((data->pitch + 1) / 2);
+        size_t size, pitch;
+        if (SDL_ISPIXELFORMAT_FOURCC(texture->format)) {
+            if (!SDL_CalculateYUVSize(texture->format, texture->w, texture->h, &size, &pitch)) {
+                return false;
+            }
+            data->pitch = (int)pitch;
+        } else {
+            data->pitch = texture->w * SDL_BYTESPERPIXEL(texture->format);
+            size = (size_t)texture->h * data->pitch;
         }
         data->pixels = SDL_calloc(1, size);
         if (!data->pixels) {
-            SDL_free(data);
             return false;
         }
 
@@ -367,9 +372,9 @@ static bool GPU_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture, SDL_
     SDL_PropertiesID props = SDL_GetTextureProperties(texture);
     SDL_SetPointerProperty(props, SDL_PROP_TEXTURE_GPU_TEXTURE_POINTER, data->texture);
 
-#ifdef SDL_HAVE_YUV
     if (texture->format == SDL_PIXELFORMAT_YV12 ||
-        texture->format == SDL_PIXELFORMAT_IYUV) {
+        texture->format == SDL_PIXELFORMAT_IYUV ||
+        texture->format == SDL_PIXELFORMAT_I0FL) {
         data->yuv = true;
 
         tci.width = (tci.width + 1) / 2;
@@ -395,9 +400,42 @@ static bool GPU_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture, SDL_
                 return false;
             }
         }
+        SDL_SetPointerProperty(props, SDL_PROP_TEXTURE_GPU_TEXTURE_V_POINTER, data->textureV);
+
+        const int bits_per_pixel = (texture->format == SDL_PIXELFORMAT_I0FL) ? 16 : 8;
+        data->YCbCr_matrix = SDL_GetYCbCRtoRGBConversionMatrix(texture->colorspace, texture->w, texture->h, bits_per_pixel);
+        if (!data->YCbCr_matrix) {
+            return SDL_SetError("Unsupported YUV colorspace");
+        }
+    }
+    if (texture->format == SDL_PIXELFORMAT_I444 ||
+        texture->format == SDL_PIXELFORMAT_I4FL) {
+        data->yuv = true;
+
+        data->textureU = SDL_GetPointerProperty(create_props, SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_U_POINTER, NULL);
+        if (data->textureU) {
+            data->external_texture_u = true;
+        } else {
+            data->textureU = SDL_CreateGPUTexture(renderdata->device, &tci);
+            if (!data->textureU) {
+                return false;
+            }
+        }
+        SDL_SetPointerProperty(props, SDL_PROP_TEXTURE_GPU_TEXTURE_U_POINTER, data->textureU);
+
+        data->textureV = SDL_GetPointerProperty(create_props, SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_V_POINTER, NULL);
+        if (data->textureV) {
+            data->external_texture_v = true;
+        } else {
+            data->textureV = SDL_CreateGPUTexture(renderdata->device, &tci);
+            if (!data->textureV) {
+                return false;
+            }
+        }
         SDL_SetPointerProperty(props, SDL_PROP_TEXTURE_GPU_TEXTURE_V_POINTER, data->textureU);
 
-        data->YCbCr_matrix = SDL_GetYCbCRtoRGBConversionMatrix(texture->colorspace, texture->w, texture->h, 8);
+        const int bits_per_pixel = (texture->format == SDL_PIXELFORMAT_I4FL) ? 16 : 8;
+        data->YCbCr_matrix = SDL_GetYCbCRtoRGBConversionMatrix(texture->colorspace, texture->w, texture->h, bits_per_pixel);
         if (!data->YCbCr_matrix) {
             return SDL_SetError("Unsupported YUV colorspace");
         }
@@ -405,8 +443,6 @@ static bool GPU_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture, SDL_
     if (texture->format == SDL_PIXELFORMAT_NV12 ||
         texture->format == SDL_PIXELFORMAT_NV21 ||
         texture->format == SDL_PIXELFORMAT_P010) {
-        int bits_per_pixel;
-
         data->nv12 = true;
 
         data->textureNV = SDL_GetPointerProperty(create_props, SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_UV_POINTER, NULL);
@@ -428,20 +464,12 @@ static bool GPU_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture, SDL_
         }
         SDL_SetPointerProperty(props, SDL_PROP_TEXTURE_GPU_TEXTURE_UV_POINTER, data->textureNV);
 
-        switch (texture->format) {
-        case SDL_PIXELFORMAT_P010:
-            bits_per_pixel = 10;
-            break;
-        default:
-            bits_per_pixel = 8;
-            break;
-        }
+        const int bits_per_pixel = (texture->format == SDL_PIXELFORMAT_P010) ? 10 : 8;
         data->YCbCr_matrix = SDL_GetYCbCRtoRGBConversionMatrix(texture->colorspace, texture->w, texture->h, bits_per_pixel);
         if (!data->YCbCr_matrix) {
             return SDL_SetError("Unsupported YUV colorspace");
         }
     }
-#endif // SDL_HAVE_YUV
     return true;
 }
 
@@ -500,7 +528,6 @@ static bool GPU_UpdateTextureInternal(GPU_RenderData *renderdata, SDL_GPUCopyPas
     return true;
 }
 
-#ifdef SDL_HAVE_YUV
 static bool GPU_UpdateTextureNV(SDL_Renderer *renderer, SDL_Texture *texture,
                                 const SDL_Rect *rect,
                                 const Uint8 *Yplane, int Ypitch,
@@ -511,7 +538,6 @@ static bool GPU_UpdateTextureYUV(SDL_Renderer *renderer, SDL_Texture *texture,
                                  const Uint8 *Yplane, int Ypitch,
                                  const Uint8 *Uplane, int Upitch,
                                  const Uint8 *Vplane, int Vpitch);
-#endif
 
 static bool GPU_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_Rect *rect, const void *pixels, int pitch)
 {
@@ -525,7 +551,6 @@ static bool GPU_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture, cons
 
     retval = GPU_UpdateTextureInternal(renderdata, cpass, data->texture, bpp, rect->x, rect->y, rect->w, rect->h, pixels, pitch);
 
-#ifdef SDL_HAVE_YUV
     if (data->nv12) {
         const Uint8 *Yplane = (const Uint8 *)pixels;
         const Uint8 *UVplane = Yplane + rect->h * pitch;
@@ -540,27 +565,34 @@ static bool GPU_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture, cons
         retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureNV, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, UVplane, UVpitch);
 
     } else if (data->yuv) {
-        int Ypitch = pitch;
-        int UVpitch = ((Ypitch + 1) / 2);
-        const Uint8 *Yplane = (const Uint8 *)pixels;
-        const Uint8 *Uplane = Yplane + rect->h * Ypitch;
-        const Uint8 *Vplane = Uplane + ((rect->h + 1) / 2) * UVpitch;
+        if (texture->format == SDL_PIXELFORMAT_I444 || texture->format == SDL_PIXELFORMAT_I4FL) {
+            const Uint8 *Yplane = (const Uint8 *)pixels;
+            const Uint8 *Uplane = Yplane + rect->h * pitch;
+            const Uint8 *Vplane = Uplane + rect->h * pitch;
 
-        if (texture->format == SDL_PIXELFORMAT_YV12) {
-            retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureV, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Uplane, UVpitch);
-            retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureU, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Vplane, UVpitch);
+            retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureU, bpp, rect->x, rect->y, rect->w, rect->h, Uplane, pitch);
+            retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureV, bpp, rect->x, rect->y, rect->w, rect->h, Vplane, pitch);
         } else {
-            retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureU, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Uplane, UVpitch);
-            retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureV, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Vplane, UVpitch);
+            const int Ypitch = pitch;
+            const int UVpitch = ((Ypitch / bpp + 1) / 2) * bpp;
+            const Uint8 *Yplane = (const Uint8 *)pixels;
+            const Uint8 *Uplane = Yplane + rect->h * Ypitch;
+            const Uint8 *Vplane = Uplane + ((rect->h + 1) / 2) * UVpitch;
+
+            if (texture->format == SDL_PIXELFORMAT_YV12) {
+                retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureV, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Uplane, UVpitch);
+                retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureU, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Vplane, UVpitch);
+            } else {
+                retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureU, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Uplane, UVpitch);
+                retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureV, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Vplane, UVpitch);
+            }
         }
     }
-#endif
 
     SDL_EndGPUCopyPass(cpass);
     return retval;
 }
 
-#ifdef SDL_HAVE_YUV
 static bool GPU_UpdateTextureYUV(SDL_Renderer *renderer, SDL_Texture *texture,
                                   const SDL_Rect *rect,
                                   const Uint8 *Yplane, int Ypitch,
@@ -575,8 +607,13 @@ static bool GPU_UpdateTextureYUV(SDL_Renderer *renderer, SDL_Texture *texture,
     SDL_GPUCommandBuffer *cbuf = renderdata->state.command_buffer;
     SDL_GPUCopyPass *cpass = SDL_BeginGPUCopyPass(cbuf);
     retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->texture, bpp, rect->x, rect->y, rect->w, rect->h, Yplane, Ypitch);
-    retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureU, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Uplane, Upitch);
-    retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureV, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Vplane, Vpitch);
+    if (texture->format == SDL_PIXELFORMAT_I444 || texture->format == SDL_PIXELFORMAT_I4FL) {
+        retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureU, bpp, rect->x, rect->y, rect->w, rect->h, Uplane, Upitch);
+        retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureV, bpp, rect->x, rect->y, rect->w, rect->h, Vplane, Vpitch);
+    } else {
+        retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureU, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Uplane, Upitch);
+        retval &= GPU_UpdateTextureInternal(renderdata, cpass, data->textureV, bpp, rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2, Vplane, Vpitch);
+    }
     SDL_EndGPUCopyPass(cpass);
     return retval;
 }
@@ -599,7 +636,6 @@ static bool GPU_UpdateTextureNV(SDL_Renderer *renderer, SDL_Texture *texture,
     SDL_EndGPUCopyPass(cpass);
     return retval;
 }
-#endif // SDL_HAVE_YUV
 
 static bool GPU_LockTexture(SDL_Renderer *renderer, SDL_Texture *texture,
                             const SDL_Rect *rect, void **pixels, int *pitch)
@@ -654,7 +690,7 @@ static bool GPU_QueueDrawPoints(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
     }
 
     if (convert_color) {
-        SDL_ConvertToLinear(&color);
+        SDL_ConvertToLinear(renderer, &color);
     }
 
     cmd->data.draw.count = count;
@@ -710,7 +746,7 @@ static bool GPU_QueueGeometry(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SD
 
         col_ = *(SDL_FColor *)((char *)color + j * color_stride);
         if (convert_color) {
-            SDL_ConvertToLinear(&col_);
+            SDL_ConvertToLinear(renderer, &col_);
         }
 
         *(verts++) = col_.r;
@@ -845,13 +881,44 @@ static SDL_GPUSampler *GetSampler(GPU_RenderData *data, SDL_PixelFormat format, 
     return data->samplers[key];
 }
 
+// Returns the input type for sRGB textures, based on whether the sampler converts them to linear
+static float GetSRGBInputType(SDL_Renderer *renderer, SDL_GPUTextureFormat format)
+{
+    const bool srgb_view = (format == SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB ||
+                            format == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM_SRGB);
+
+    if (SDL_RenderingLinearSpace(renderer)) {
+        if (!srgb_view) {
+            // The shader needs to convert from sRGB to linear
+            return INPUTTYPE_SRGB;
+        }
+    } else {
+        if (srgb_view) {
+            // The sampler converts to linear, so the shader needs to convert back to sRGB
+            return INPUTTYPE_SCRGB;
+        }
+    }
+    // The texture is already in the colorspace we're rendering in
+    return INPUTTYPE_UNSPECIFIED;
+}
+
 static void CalculateAdvancedShaderConstants(SDL_Renderer *renderer, const SDL_RenderCommand *cmd, const SDL_Texture *texture, GPU_AdvancedFragmentShaderUniformData *constants)
 {
     float output_headroom;
 
     SDL_zerop(constants);
 
-    constants->scRGB_output = (float)SDL_RenderingLinearSpace(renderer);
+    switch (renderer->current_colorspace) {
+    case SDL_COLORSPACE_SRGB_LINEAR:
+        constants->output_type = OUTPUTTYPE_SCRGB;
+        break;
+    case SDL_COLORSPACE_HDR10:
+        constants->output_type = OUTPUTTYPE_HDR10;
+        break;
+    default:
+        constants->output_type = OUTPUTTYPE_SRGB;
+        break;
+    }
     constants->color_scale = cmd->data.draw.color_scale;
 
     switch (texture->format) {
@@ -870,23 +937,25 @@ static void CalculateAdvancedShaderConstants(SDL_Renderer *renderer, const SDL_R
             SDL_assert(!"Unknown scale mode");
             break;
         }
+        {
+            // The palette is stored in an RGBA32 texture
+            const SDL_GPUTextureFormat palette_format = SDL_GetGPUTextureFormatFromPixelFormat(SDL_PIXELFORMAT_RGBA32);
+            constants->input_type = GetSRGBInputType(renderer, palette_format);
+        }
         break;
     case SDL_PIXELFORMAT_YV12:
     case SDL_PIXELFORMAT_IYUV:
+    case SDL_PIXELFORMAT_I444:
+    case SDL_PIXELFORMAT_I0FL:
+    case SDL_PIXELFORMAT_I4FL:
         constants->texture_type = TEXTURETYPE_YUV;
-        constants->input_type = INPUTTYPE_SRGB;
         break;
     case SDL_PIXELFORMAT_NV12:
+    case SDL_PIXELFORMAT_P010:
         constants->texture_type = TEXTURETYPE_NV12;
-        constants->input_type = INPUTTYPE_SRGB;
         break;
     case SDL_PIXELFORMAT_NV21:
         constants->texture_type = TEXTURETYPE_NV21;
-        constants->input_type = INPUTTYPE_SRGB;
-        break;
-    case SDL_PIXELFORMAT_P010:
-        constants->texture_type = TEXTURETYPE_NV12;
-        constants->input_type = INPUTTYPE_HDR10;
         break;
     default:
         switch (texture->format) {
@@ -906,15 +975,28 @@ static void CalculateAdvancedShaderConstants(SDL_Renderer *renderer, const SDL_R
             }
             break;
         }
-        if (texture->colorspace == SDL_COLORSPACE_SRGB_LINEAR) {
+        switch (SDL_COLORSPACETRANSFER(texture->colorspace)) {
+        case SDL_TRANSFER_CHARACTERISTICS_LINEAR:
             constants->input_type = INPUTTYPE_SCRGB;
-        } else if (texture->colorspace == SDL_COLORSPACE_HDR10) {
+            break;
+        case SDL_TRANSFER_CHARACTERISTICS_PQ:
             constants->input_type = INPUTTYPE_HDR10;
-        } else {
-            // The sampler will convert from sRGB to linear on load if working in linear colorspace
-            constants->input_type = INPUTTYPE_UNSPECIFIED;
+            break;
+        default:
+            constants->input_type = GetSRGBInputType(renderer, ((GPU_TextureData *)texture->internal)->format);
+            break;
         }
         break;
+    }
+
+    if (constants->texture_type == TEXTURETYPE_YUV ||
+        constants->texture_type == TEXTURETYPE_NV12 ||
+        constants->texture_type == TEXTURETYPE_NV21) {
+        if (SDL_COLORSPACETRANSFER(texture->colorspace) == SDL_TRANSFER_CHARACTERISTICS_PQ) {
+            constants->input_type = INPUTTYPE_HDR10;
+        } else {
+            constants->input_type = INPUTTYPE_SRGB;
+        }
     }
 
     if (constants->texture_type == TEXTURETYPE_PALETTE_LINEAR ||
@@ -941,16 +1023,14 @@ static void CalculateAdvancedShaderConstants(SDL_Renderer *renderer, const SDL_R
         constants->tonemap_factor2 = (1.0f / output_headroom);
     }
 
-#ifdef SDL_HAVE_YUV
     GPU_TextureData *data = (GPU_TextureData *)texture->internal;
     if (data->yuv || data->nv12) {
         SDL_memcpy(constants->YCbCr_matrix, data->YCbCr_matrix, sizeof(constants->YCbCr_matrix));
     }
-#endif
 }
 
 static void Draw(
-    GPU_RenderData *data, SDL_RenderCommand *cmd,
+    SDL_Renderer *renderer, GPU_RenderData *data, SDL_RenderCommand *cmd,
     Uint32 num_verts,
     Uint32 offset,
     SDL_GPUPrimitiveType prim)
@@ -966,18 +1046,21 @@ static void Draw(
     GPU_FragmentShaderID f_shader;
     GPU_SimpleFragmentShaderUniformData simple_constants = { cmd->data.draw.color_scale };
     GPU_AdvancedFragmentShaderUniformData advanced_constants;
+    const bool HDR10_output = (renderer->current_colorspace == SDL_COLORSPACE_HDR10);
 
     if (prim == SDL_GPU_PRIMITIVETYPE_TRIANGLELIST) {
         SDL_Texture *texture = cmd->data.draw.texture;
         if (texture) {
             v_shader = VERT_SHADER_TRI_TEXTURE;
 
-            CalculateAdvancedShaderConstants(texture->renderer, cmd, texture, &advanced_constants);
+            CalculateAdvancedShaderConstants(renderer, cmd, texture, &advanced_constants);
             if ((advanced_constants.texture_type == TEXTURETYPE_RGB ||
                  advanced_constants.texture_type == TEXTURETYPE_RGBA) &&
                 advanced_constants.input_type == INPUTTYPE_UNSPECIFIED &&
-                advanced_constants.tonemap_method == TONEMAP_NONE) {
-                if (texture->format == SDL_PIXELFORMAT_RGBA32 || texture->format == SDL_PIXELFORMAT_BGRA32) {
+                advanced_constants.tonemap_method == TONEMAP_NONE &&
+                !HDR10_output) {
+                if (texture->format == SDL_PIXELFORMAT_RGBA32 ||
+                    texture->format == SDL_PIXELFORMAT_BGRA32) {
                     f_shader = FRAG_SHADER_TEXTURE_RGBA;
                 } else {
                     f_shader = FRAG_SHADER_TEXTURE_RGB;
@@ -987,11 +1070,19 @@ static void Draw(
             }
         } else {
             v_shader = VERT_SHADER_TRI_COLOR;
-            f_shader = FRAG_SHADER_COLOR;
+            if (HDR10_output) {
+                f_shader = FRAG_SHADER_COLOR_PQ;
+            } else {
+                f_shader = FRAG_SHADER_COLOR;
+            }
         }
     } else {
         v_shader = VERT_SHADER_LINEPOINT;
-        f_shader = FRAG_SHADER_COLOR;
+        if (HDR10_output) {
+            f_shader = FRAG_SHADER_COLOR_PQ;
+        } else {
+            f_shader = FRAG_SHADER_COLOR;
+        }
     }
 
     if (custom_frag_shader) {
@@ -1037,7 +1128,6 @@ static void Draw(
                 sampler_bind.sampler = GetSampler(data, SDL_PIXELFORMAT_UNKNOWN, SDL_SCALEMODE_NEAREST, SDL_TEXTURE_ADDRESS_CLAMP, SDL_TEXTURE_ADDRESS_CLAMP);
                 sampler_bind.texture = palette->texture;
                 SDL_BindGPUFragmentSamplers(pass, sampler_slot++, &sampler_bind, 1);
-#ifdef SDL_HAVE_YUV
             } else if (tdata->yuv) {
                 sampler_bind.texture = tdata->textureU;
                 SDL_BindGPUFragmentSamplers(pass, sampler_slot++, &sampler_bind, 1);
@@ -1046,7 +1136,6 @@ static void Draw(
             } else if (tdata->nv12) {
                 sampler_bind.texture = tdata->textureNV;
                 SDL_BindGPUFragmentSamplers(pass, sampler_slot++, &sampler_bind, 1);
-#endif
             }
 
             // We need to fill 3 sampler slots for the advanced shader
@@ -1234,11 +1323,18 @@ static bool GPU_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
             bool convert_color = SDL_RenderingLinearSpace(renderer);
             SDL_FColor color = cmd->data.color.color;
             if (convert_color) {
-                SDL_ConvertToLinear(&color);
+                SDL_ConvertToLinear(renderer, &color);
             }
             color.r *= cmd->data.color.color_scale;
             color.g *= cmd->data.color.color_scale;
             color.b *= cmd->data.color.color_scale;
+
+            if (renderer->current_colorspace == SDL_COLORSPACE_HDR10) {
+                color.r = SDL_PQfromNits(color.r * SCRGB_NITS);
+                color.g = SDL_PQfromNits(color.g * SCRGB_NITS);
+                color.b = SDL_PQfromNits(color.b * SCRGB_NITS);
+            }
+
             data->state.color_attachment.clear_color = color;
             data->state.color_attachment.load_op = SDL_GPU_LOADOP_CLEAR;
             break;
@@ -1260,7 +1356,7 @@ static bool GPU_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
 
             if (count > 2) {
                 // joined lines cannot be grouped
-                Draw(data, cmd, count, offset, SDL_GPU_PRIMITIVETYPE_LINESTRIP);
+                Draw(renderer, data, cmd, count, offset, SDL_GPU_PRIMITIVETYPE_LINESTRIP);
             } else {
                 // let's group non joined lines
                 SDL_RenderCommand *finalcmd = cmd;
@@ -1289,7 +1385,7 @@ static bool GPU_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
                     }
                 }
 
-                Draw(data, cmd, count, offset, SDL_GPU_PRIMITIVETYPE_LINELIST);
+                Draw(renderer, data, cmd, count, offset, SDL_GPU_PRIMITIVETYPE_LINELIST);
                 cmd = finalcmd; // skip any copy commands we just combined in here.
             }
             break;
@@ -1341,7 +1437,7 @@ static bool GPU_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
             } else {
                 prim = SDL_GPU_PRIMITIVETYPE_POINTLIST;
             }
-            Draw(data, cmd, count, offset, prim);
+            Draw(renderer, data, cmd, count, offset, prim);
 
             cmd = finalcmd; // skip any copy commands we just combined in here.
             break;
@@ -1396,8 +1492,7 @@ static SDL_Surface *GPU_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect 
         return NULL;
     }
 
-    SDL_Surface *surface = SDL_CreateSurface(rect->w, rect->h, pixfmt);
-
+    SDL_Surface *surface = SDL_CreateSurfaceUninitialized(rect->w, rect->h, pixfmt);
     if (!surface) {
         return NULL;
     }
@@ -1408,8 +1503,8 @@ static SDL_Surface *GPU_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect 
     tbci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
 
     SDL_GPUTransferBuffer *tbuf = SDL_CreateGPUTransferBuffer(data->device, &tbci);
-
     if (!tbuf) {
+        SDL_DestroySurface(surface);
         return NULL;
     }
 
@@ -1434,11 +1529,21 @@ static SDL_Surface *GPU_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect 
     SDL_EndGPUCopyPass(pass);
 
     SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(data->state.command_buffer);
+    data->state.command_buffer = SDL_AcquireGPUCommandBuffer(data->device);
+    if (!fence) {
+        SDL_ReleaseGPUTransferBuffer(data->device, tbuf);
+        SDL_DestroySurface(surface);
+        return NULL;
+    }
     SDL_WaitForGPUFences(data->device, true, &fence, 1);
     SDL_ReleaseGPUFence(data->device, fence);
-    data->state.command_buffer = SDL_AcquireGPUCommandBuffer(data->device);
 
     void *mapped_tbuf = SDL_MapGPUTransferBuffer(data->device, tbuf, false);
+    if (!mapped_tbuf) {
+        SDL_ReleaseGPUTransferBuffer(data->device, tbuf);
+        SDL_DestroySurface(surface);
+        return NULL;
+    }
 
     if ((size_t)surface->pitch == row_size) {
         SDL_memcpy(surface->pixels, mapped_tbuf, image_size);
@@ -1517,6 +1622,9 @@ static bool GPU_RenderPresent(SDL_Renderer *renderer)
 
             if (swapchain_texture_width != data->backbuffer.width || swapchain_texture_height != data->backbuffer.height) {
                 CreateBackbuffer(data, swapchain_texture_width, swapchain_texture_height, SDL_GetGPUSwapchainTextureFormat(data->device, renderer->window));
+
+                // Notify the application that it needs to redraw this frame
+                SDL_SendWindowEvent(renderer->window, SDL_EVENT_WINDOW_EXPOSED, 0, 0);
             }
         } else {
             SDL_SubmitGPUCommandBuffer(data->state.command_buffer);
@@ -1546,7 +1654,6 @@ static void GPU_DestroyTexture(SDL_Renderer *renderer, SDL_Texture *texture)
     if (!data->external_texture) {
         SDL_ReleaseGPUTexture(renderdata->device, data->texture);
     }
-#ifdef SDL_HAVE_YUV
     if (!data->external_texture_u) {
         SDL_ReleaseGPUTexture(renderdata->device, data->textureU);
     }
@@ -1556,7 +1663,6 @@ static void GPU_DestroyTexture(SDL_Renderer *renderer, SDL_Texture *texture)
     if (!data->external_texture_nv) {
         SDL_ReleaseGPUTexture(renderdata->device, data->textureNV);
     }
-#endif
     SDL_free(data->pixels);
     SDL_free(data);
     texture->internal = NULL;
@@ -1624,10 +1730,10 @@ static bool ChoosePresentMode(SDL_GPUDevice *device, SDL_Window *window, const i
 
     switch (vsync) {
     case 0:
-        mode = SDL_GPU_PRESENTMODE_MAILBOX;
+        mode = SDL_GPU_PRESENTMODE_IMMEDIATE;
 
         if (!SDL_WindowSupportsGPUPresentMode(device, window, mode)) {
-            mode = SDL_GPU_PRESENTMODE_IMMEDIATE;
+            mode = SDL_GPU_PRESENTMODE_MAILBOX;
 
             if (!SDL_WindowSupportsGPUPresentMode(device, window, mode)) {
                 mode = SDL_GPU_PRESENTMODE_VSYNC;
@@ -1683,11 +1789,18 @@ static bool GPU_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, SDL_P
 {
     GPU_RenderData *data = NULL;
 
+    // Clear any OpenGL properties on the window to avoid potential driver conflicts.
+    SDL_WindowFlags flags = window ? SDL_GetWindowFlags(window) : 0;
+    if (flags & SDL_WINDOW_OPENGL) {
+        flags &= ~SDL_WINDOW_OPENGL;
+        SDL_ReconfigureWindow(window, flags);
+    }
+
     SDL_SetupRendererColorspace(renderer, create_props);
 
     if (renderer->output_colorspace != SDL_COLORSPACE_SRGB &&
-        renderer->output_colorspace != SDL_COLORSPACE_SRGB_LINEAR
-        /*&& renderer->output_colorspace != SDL_COLORSPACE_HDR10*/) {
+        renderer->output_colorspace != SDL_COLORSPACE_SRGB_LINEAR &&
+        renderer->output_colorspace != SDL_COLORSPACE_HDR10) {
         return SDL_SetError("Unsupported output colorspace");
     }
 
@@ -1702,10 +1815,8 @@ static bool GPU_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, SDL_P
     renderer->DestroyPalette = GPU_DestroyPalette;
     renderer->CreateTexture = GPU_CreateTexture;
     renderer->UpdateTexture = GPU_UpdateTexture;
-#ifdef SDL_HAVE_YUV
     renderer->UpdateTextureYUV = GPU_UpdateTextureYUV;
     renderer->UpdateTextureNV = GPU_UpdateTextureNV;
-#endif
     renderer->LockTexture = GPU_LockTexture;
     renderer->UnlockTexture = GPU_UnlockTexture;
     renderer->SetRenderTarget = GPU_SetRenderTarget;
@@ -1815,7 +1926,13 @@ static bool GPU_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, SDL_P
         int vsync = (int)SDL_GetNumberProperty(create_props, SDL_PROP_RENDERER_CREATE_PRESENT_VSYNC_NUMBER, 0);
         ChoosePresentMode(data->device, window, vsync, &data->swapchain.present_mode);
 
-        SDL_SetGPUSwapchainParameters(data->device, window, data->swapchain.composition, data->swapchain.present_mode);
+        if (!SDL_WindowSupportsGPUSwapchainComposition(data->device, window, data->swapchain.composition)) {
+            return SDL_SetError("Unsupported output colorspace");
+        }
+
+        if (!SDL_SetGPUSwapchainParameters(data->device, window, data->swapchain.composition, data->swapchain.present_mode)) {
+            return false;
+        }
 
         SDL_SetGPUAllowedFramesInFlight(data->device, 1);
 
@@ -1838,9 +1955,12 @@ static bool GPU_CreateRenderer(SDL_Renderer *renderer, SDL_Window *window, SDL_P
     SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_INDEX8);
     SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_YV12);
     SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_IYUV);
+    SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_I444);
     SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_NV12);
     SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_NV21);
     SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_P010);
+    SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_I0FL);
+    SDL_AddSupportedTextureFormat(renderer, SDL_PIXELFORMAT_I4FL);
 
     SDL_SetNumberProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_MAX_TEXTURE_SIZE_NUMBER, 16384);
 

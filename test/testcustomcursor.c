@@ -118,40 +118,9 @@ static const char *cross[] = {
     "16,16"
 };
 
-static SDL_Surface *load_image_file(const char *file)
-{
-    SDL_Surface *surface = SDL_LoadSurface(file);
-    if (surface) {
-        if (SDL_GetSurfacePalette(surface)) {
-            const Uint8 bpp = SDL_BITSPERPIXEL(surface->format);
-            const Uint8 mask = (1 << bpp) - 1;
-            if (SDL_PIXELORDER(surface->format) == SDL_BITMAPORDER_4321)
-                SDL_SetSurfaceColorKey(surface, 1, (*(Uint8 *)surface->pixels) & mask);
-            else
-                SDL_SetSurfaceColorKey(surface, 1, ((*(Uint8 *)surface->pixels) >> (8 - bpp)) & mask);
-        } else {
-            switch (SDL_BITSPERPIXEL(surface->format)) {
-            case 15:
-                SDL_SetSurfaceColorKey(surface, 1, (*(Uint16 *)surface->pixels) & 0x00007FFF);
-                break;
-            case 16:
-                SDL_SetSurfaceColorKey(surface, 1, *(Uint16 *)surface->pixels);
-                break;
-            case 24:
-                SDL_SetSurfaceColorKey(surface, 1, (*(Uint32 *)surface->pixels) & 0x00FFFFFF);
-                break;
-            case 32:
-                SDL_SetSurfaceColorKey(surface, 1, *(Uint32 *)surface->pixels);
-                break;
-            }
-        }
-    }
-    return surface;
-}
-
 static SDL_Surface *load_image(const char *file)
 {
-    SDL_Surface *surface = load_image_file(file);
+    SDL_Surface *surface = SDL_LoadSurface(file);
     if (surface) {
         /* Add a 2x version of this image, if available */
         SDL_Surface *surface2x = NULL;
@@ -166,7 +135,7 @@ static SDL_Surface *load_image(const char *file)
             } else {
                 SDL_strlcat(file2x, "2x", len);
             }
-            surface2x = load_image_file(file2x);
+            surface2x = SDL_LoadSurface(file2x);
             SDL_free(file2x);
         }
         if (surface2x) {
@@ -230,13 +199,16 @@ static SDL_Cursor *init_system_cursor(const char *image[])
             }
             switch (image[4 + row][col]) {
             case 'X':
+                // Black
                 data[i] |= 0x01;
                 mask[i] |= 0x01;
                 break;
             case '.':
+                // White
                 mask[i] |= 0x01;
                 break;
             case 'o':
+                // Inverted or black
                 data[i] |= 0x01;
                 break;
             case ' ':
@@ -352,7 +324,7 @@ static const char *get_active_cursor_name()
     case CUSTOM_CURSOR_ARROW:
         return "Custom cursor (arrow)";
     case CUSTOM_CURSOR_CROSS:
-        return "Custom cursor (cross)";
+        return "Custom cursor (cross - inverted pixels)";
     case CUSTOM_ANIMATED_CURSOR_ONE_SHOT:
         return "Animated custom cursor (one-shot)";
     case CUSTOM_ANIMATED_CURSOR:
@@ -490,8 +462,8 @@ static void loop(void)
                 black = !black;
             }
         }
-        SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xFF);
-        SDL_RenderDebugText(renderer, 0.0f, 0.0f, get_active_cursor_name());
+        SDL_SetRenderDrawColor(renderer, 0xDD, 0x33, 0x00, 0xFF);
+        SDL_RenderDebugText(renderer, 4.0f, 4.0f, get_active_cursor_name());
         SDL_RenderPresent(renderer);
     }
 #ifdef SDL_PLATFORM_EMSCRIPTEN

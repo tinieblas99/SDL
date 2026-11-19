@@ -117,6 +117,14 @@ typedef struct
     Uint8 ucVolumeSpeaker;
 } DS4EffectsState_t;
 
+// These enum values match with the validity flags in the PS4 output report
+typedef enum
+{
+    k_EPS4EffectRumble = (1 << 0),
+    k_EPS4EffectLED = (1 << 1),
+    k_EPS4EffectLEDBlink = (1 << 2),
+} EPS4Effect;
+
 typedef struct
 {
     Sint16 bias;
@@ -178,7 +186,7 @@ typedef struct
     PS4StatePacket_t last_state;
 } SDL_DriverPS4_Context;
 
-static bool HIDAPI_DriverPS4_InternalSendJoystickEffect(SDL_DriverPS4_Context *ctx, const void *effect, int size, bool application_usage);
+static bool HIDAPI_DriverPS4_InternalSendJoystickEffect(SDL_DriverPS4_Context *ctx, const void *effect, int size, EPS4Effect mask, bool application_usage);
 
 static void HIDAPI_DriverPS4_RegisterHints(SDL_HintCallback callback, void *userdata)
 {
@@ -282,6 +290,7 @@ static bool HIDAPI_DriverPS4_InitDevice(SDL_HIDAPI_Device *device)
         return false;
     }
     ctx->device = device;
+    ctx->last_packet = SDL_GetTicks();
 
     ctx->gyro_numerator = 1;
     ctx->gyro_denominator = 16;
@@ -460,11 +469,6 @@ static bool HIDAPI_DriverPS4_InitDevice(SDL_HIDAPI_Device *device)
         return true;
     }
     return HIDAPI_JoystickConnected(device, NULL);
-}
-
-static int HIDAPI_DriverPS4_GetDevicePlayerIndex(SDL_HIDAPI_Device *device, SDL_JoystickID instance_id)
-{
-    return -1;
 }
 
 static bool HIDAPI_DriverPS4_LoadOfficialCalibrationData(SDL_HIDAPI_Device *device)
@@ -661,7 +665,7 @@ static float HIDAPI_DriverPS4_ApplyCalibrationData(SDL_DriverPS4_Context *ctx, i
     return ((float)value - calibration->bias) * calibration->scale;
 }
 
-static bool HIDAPI_DriverPS4_UpdateEffects(SDL_DriverPS4_Context *ctx, bool application_usage)
+static bool HIDAPI_DriverPS4_UpdateEffects(SDL_DriverPS4_Context *ctx, EPS4Effect mask, bool application_usage)
 {
     DS4EffectsState_t effects;
 
@@ -682,7 +686,7 @@ static bool HIDAPI_DriverPS4_UpdateEffects(SDL_DriverPS4_Context *ctx, bool appl
             SetLedsForPlayerIndex(&effects, ctx->player_index);
         }
     }
-    return HIDAPI_DriverPS4_InternalSendJoystickEffect(ctx, &effects, sizeof(effects), application_usage);
+    return HIDAPI_DriverPS4_InternalSendJoystickEffect(ctx, &effects, sizeof(effects), mask, application_usage);
 }
 
 static void HIDAPI_DriverPS4_TickleBluetooth(SDL_HIDAPI_Device *device)
@@ -749,7 +753,7 @@ static void HIDAPI_DriverPS4_SetEnhancedMode(SDL_DriverPS4_Context *ctx)
         ctx->enhanced_mode = true;
 
         // Switch into enhanced report mode
-        HIDAPI_DriverPS4_UpdateEffects(ctx, false);
+        HIDAPI_DriverPS4_UpdateEffects(ctx, 0, false);
     }
 }
 
@@ -825,7 +829,7 @@ static void SDLCALL SDL_PS4ReportIntervalHintChanged(void *userdata, const char 
     if (new_report_interval != ctx->report_interval) {
         ctx->report_interval = (Uint8)new_report_interval;
 
-        HIDAPI_DriverPS4_UpdateEffects(ctx, false);
+        HIDAPI_DriverPS4_UpdateEffects(ctx, 0, false);
         SDL_LockJoysticks();
         SDL_PrivateJoystickSensorRate(ctx->joystick, SDL_SENSOR_GYRO, (float)(1000 / ctx->report_interval));
         SDL_PrivateJoystickSensorRate(ctx->joystick, SDL_SENSOR_ACCEL, (float)(1000 / ctx->report_interval));
@@ -845,7 +849,7 @@ static void HIDAPI_DriverPS4_SetDevicePlayerIndex(SDL_HIDAPI_Device *device, SDL
 
     // This will set the new LED state based on the new player index
     // SDL automatically calls this, so it doesn't count as an application action to enable enhanced mode
-    HIDAPI_DriverPS4_UpdateEffects(ctx, false);
+    HIDAPI_DriverPS4_UpdateEffects(ctx, k_EPS4EffectLED, false);
 }
 
 static bool HIDAPI_DriverPS4_OpenJoystick(SDL_HIDAPI_Device *device, SDL_Joystick *joystick)
@@ -892,12 +896,7 @@ static bool HIDAPI_DriverPS4_RumbleJoystick(SDL_HIDAPI_Device *device, SDL_Joyst
     ctx->rumble_left = (low_frequency_rumble >> 8);
     ctx->rumble_right = (high_frequency_rumble >> 8);
 
-    return HIDAPI_DriverPS4_UpdateEffects(ctx, true);
-}
-
-static bool HIDAPI_DriverPS4_RumbleJoystickTriggers(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, Uint16 left_rumble, Uint16 right_rumble)
-{
-    return SDL_Unsupported();
+    return HIDAPI_DriverPS4_UpdateEffects(ctx, k_EPS4EffectRumble, true);
 }
 
 static Uint32 HIDAPI_DriverPS4_GetJoystickCapabilities(SDL_HIDAPI_Device *device, SDL_Joystick *joystick)
@@ -930,10 +929,10 @@ static bool HIDAPI_DriverPS4_SetJoystickLED(SDL_HIDAPI_Device *device, SDL_Joyst
     ctx->led_green = green;
     ctx->led_blue = blue;
 
-    return HIDAPI_DriverPS4_UpdateEffects(ctx, true);
+    return HIDAPI_DriverPS4_UpdateEffects(ctx, k_EPS4EffectLED, true);
 }
 
-static bool HIDAPI_DriverPS4_InternalSendJoystickEffect(SDL_DriverPS4_Context *ctx, const void *effect, int size, bool application_usage)
+static bool HIDAPI_DriverPS4_InternalSendJoystickEffect(SDL_DriverPS4_Context *ctx, const void *effect, int size, EPS4Effect mask, bool application_usage)
 {
     Uint8 data[78];
     int report_size, offset;
@@ -959,13 +958,21 @@ static bool HIDAPI_DriverPS4_InternalSendJoystickEffect(SDL_DriverPS4_Context *c
     if (ctx->device->is_bluetooth && ctx->official_controller) {
         data[0] = k_EPS4ReportIdBluetoothEffects;
         data[1] = 0xC0 | ctx->report_interval; // Magic value HID + CRC, also sets update interval
-        data[3] = 0x03;        // 0x1 is rumble, 0x2 is lightbar, 0x4 is the blink interval
+
+        // Some third-party PS4 gamepads expect to receive both rumble and LED together,
+        // so we will only send them separately to official Sony gamepads. Unfortunately,
+        // this means that we'll fight with other apps that might be controlling one or
+        // the other separately for third-party PS4 gamepads. We can add a whitelist for
+        // compatible third-party gamepads later if we want.
+        data[3] = (Uint8)(ctx->official_controller ? mask : (k_EPS4EffectRumble | k_EPS4EffectLED));
 
         report_size = 78;
         offset = 6;
     } else {
         data[0] = k_EPS4ReportIdUsbEffects;
-        data[1] = 0x07; // Magic value
+
+        // FIXME: Should we send a consistent default effect mask between BT and USB?
+        data[1] = (Uint8)(ctx->official_controller ? mask : (k_EPS4EffectRumble | k_EPS4EffectLED | k_EPS4EffectLEDBlink));
 
         report_size = 32;
         offset = 4;
@@ -991,8 +998,18 @@ static bool HIDAPI_DriverPS4_InternalSendJoystickEffect(SDL_DriverPS4_Context *c
 static bool HIDAPI_DriverPS4_SendJoystickEffect(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, const void *effect, int size)
 {
     SDL_DriverPS4_Context *ctx = (SDL_DriverPS4_Context *)device->context;
+    EPS4Effect mask;
 
-    return HIDAPI_DriverPS4_InternalSendJoystickEffect(ctx, effect, size, true);
+    // Unlike the PS5 driver, the PS4 driver does not expect the validity bits as part of
+    // the provided effect data. The default values we provide also diverge for different
+    // gamepads and connection mediums. We should probably clean this up eventually.
+    if (ctx->device->is_bluetooth && ctx->official_controller) {
+        mask = k_EPS4EffectRumble | k_EPS4EffectLED;
+    } else {
+        mask = k_EPS4EffectRumble | k_EPS4EffectLED | k_EPS4EffectLEDBlink;
+    }
+
+    return HIDAPI_DriverPS4_InternalSendJoystickEffect(ctx, effect, size, mask, true);
 }
 
 static bool HIDAPI_DriverPS4_SetJoystickSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)
@@ -1150,7 +1167,7 @@ static void HIDAPI_DriverPS4_HandleStatePacket(SDL_Joystick *joystick, SDL_hid_d
         float data[3];
 
         tick = LOAD16(packet->rgucTimestamp[0], packet->rgucTimestamp[1]);
-        if (ctx->last_tick < tick) {
+        if (ctx->last_tick <= tick) {
             delta = (tick - ctx->last_tick);
         } else {
             delta = (SDL_MAX_UINT16 - ctx->last_tick + tick + 1);
@@ -1395,30 +1412,23 @@ static void HIDAPI_DriverPS4_CloseJoystick(SDL_HIDAPI_Device *device, SDL_Joysti
     ctx->enhanced_mode_available = false;
 }
 
-static void HIDAPI_DriverPS4_FreeDevice(SDL_HIDAPI_Device *device)
-{
-}
-
 SDL_HIDAPI_DeviceDriver SDL_HIDAPI_DriverPS4 = {
-    SDL_HINT_JOYSTICK_HIDAPI_PS4,
-    true,
-    HIDAPI_DriverPS4_RegisterHints,
-    HIDAPI_DriverPS4_UnregisterHints,
-    HIDAPI_DriverPS4_IsEnabled,
-    HIDAPI_DriverPS4_IsSupportedDevice,
-    HIDAPI_DriverPS4_InitDevice,
-    HIDAPI_DriverPS4_GetDevicePlayerIndex,
-    HIDAPI_DriverPS4_SetDevicePlayerIndex,
-    HIDAPI_DriverPS4_UpdateDevice,
-    HIDAPI_DriverPS4_OpenJoystick,
-    HIDAPI_DriverPS4_RumbleJoystick,
-    HIDAPI_DriverPS4_RumbleJoystickTriggers,
-    HIDAPI_DriverPS4_GetJoystickCapabilities,
-    HIDAPI_DriverPS4_SetJoystickLED,
-    HIDAPI_DriverPS4_SendJoystickEffect,
-    HIDAPI_DriverPS4_SetJoystickSensorsEnabled,
-    HIDAPI_DriverPS4_CloseJoystick,
-    HIDAPI_DriverPS4_FreeDevice,
+    .name = SDL_HINT_JOYSTICK_HIDAPI_PS4,
+    .enabled = true,
+    .RegisterHints = HIDAPI_DriverPS4_RegisterHints,
+    .UnregisterHints = HIDAPI_DriverPS4_UnregisterHints,
+    .IsEnabled = HIDAPI_DriverPS4_IsEnabled,
+    .IsSupportedDevice = HIDAPI_DriverPS4_IsSupportedDevice,
+    .InitDevice = HIDAPI_DriverPS4_InitDevice,
+    .SetDevicePlayerIndex = HIDAPI_DriverPS4_SetDevicePlayerIndex,
+    .UpdateDevice = HIDAPI_DriverPS4_UpdateDevice,
+    .OpenJoystick = HIDAPI_DriverPS4_OpenJoystick,
+    .RumbleJoystick = HIDAPI_DriverPS4_RumbleJoystick,
+    .GetJoystickCapabilities = HIDAPI_DriverPS4_GetJoystickCapabilities,
+    .SetJoystickLED = HIDAPI_DriverPS4_SetJoystickLED,
+    .SendJoystickEffect = HIDAPI_DriverPS4_SendJoystickEffect,
+    .SetJoystickSensorsEnabled = HIDAPI_DriverPS4_SetJoystickSensorsEnabled,
+    .CloseJoystick = HIDAPI_DriverPS4_CloseJoystick,
 };
 
 #endif // SDL_JOYSTICK_HIDAPI_PS4

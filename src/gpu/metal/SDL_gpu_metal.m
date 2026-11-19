@@ -213,37 +213,38 @@ static MTLPixelFormat SDLToMetal_TextureFormat(SDL_GPUTextureFormat format)
 #undef RETURN_FORMAT
 
 static MTLVertexFormat SDLToMetal_VertexFormat[] = {
-    MTLVertexFormatInvalid,           // INVALID
-    MTLVertexFormatInt,               // INT
-    MTLVertexFormatInt2,              // INT2
-    MTLVertexFormatInt3,              // INT3
-    MTLVertexFormatInt4,              // INT4
-    MTLVertexFormatUInt,              // UINT
-    MTLVertexFormatUInt2,             // UINT2
-    MTLVertexFormatUInt3,             // UINT3
-    MTLVertexFormatUInt4,             // UINT4
-    MTLVertexFormatFloat,             // FLOAT
-    MTLVertexFormatFloat2,            // FLOAT2
-    MTLVertexFormatFloat3,            // FLOAT3
-    MTLVertexFormatFloat4,            // FLOAT4
-    MTLVertexFormatChar2,             // BYTE2
-    MTLVertexFormatChar4,             // BYTE4
-    MTLVertexFormatUChar2,            // UBYTE2
-    MTLVertexFormatUChar4,            // UBYTE4
-    MTLVertexFormatChar2Normalized,   // BYTE2_NORM
-    MTLVertexFormatChar4Normalized,   // BYTE4_NORM
-    MTLVertexFormatUChar2Normalized,  // UBYTE2_NORM
-    MTLVertexFormatUChar4Normalized,  // UBYTE4_NORM
-    MTLVertexFormatShort2,            // SHORT2
-    MTLVertexFormatShort4,            // SHORT4
-    MTLVertexFormatUShort2,           // USHORT2
-    MTLVertexFormatUShort4,           // USHORT4
-    MTLVertexFormatShort2Normalized,  // SHORT2_NORM
-    MTLVertexFormatShort4Normalized,  // SHORT4_NORM
-    MTLVertexFormatUShort2Normalized, // USHORT2_NORM
-    MTLVertexFormatUShort4Normalized, // USHORT4_NORM
-    MTLVertexFormatHalf2,             // HALF2
-    MTLVertexFormatHalf4              // HALF4
+    MTLVertexFormatInvalid,              // INVALID
+    MTLVertexFormatInt,                  // INT
+    MTLVertexFormatInt2,                 // INT2
+    MTLVertexFormatInt3,                 // INT3
+    MTLVertexFormatInt4,                 // INT4
+    MTLVertexFormatUInt,                 // UINT
+    MTLVertexFormatUInt2,                // UINT2
+    MTLVertexFormatUInt3,                // UINT3
+    MTLVertexFormatUInt4,                // UINT4
+    MTLVertexFormatFloat,                // FLOAT
+    MTLVertexFormatFloat2,               // FLOAT2
+    MTLVertexFormatFloat3,               // FLOAT3
+    MTLVertexFormatFloat4,               // FLOAT4
+    MTLVertexFormatChar2,                // BYTE2
+    MTLVertexFormatChar4,                // BYTE4
+    MTLVertexFormatUChar2,               // UBYTE2
+    MTLVertexFormatUChar4,               // UBYTE4
+    MTLVertexFormatChar2Normalized,      // BYTE2_NORM
+    MTLVertexFormatChar4Normalized,      // BYTE4_NORM
+    MTLVertexFormatUChar2Normalized,     // UBYTE2_NORM
+    MTLVertexFormatUChar4Normalized,     // UBYTE4_NORM
+    MTLVertexFormatShort2,               // SHORT2
+    MTLVertexFormatShort4,               // SHORT4
+    MTLVertexFormatUShort2,              // USHORT2
+    MTLVertexFormatUShort4,              // USHORT4
+    MTLVertexFormatShort2Normalized,     // SHORT2_NORM
+    MTLVertexFormatShort4Normalized,     // SHORT4_NORM
+    MTLVertexFormatUShort2Normalized,    // USHORT2_NORM
+    MTLVertexFormatUShort4Normalized,    // USHORT4_NORM
+    MTLVertexFormatHalf2,                // HALF2
+    MTLVertexFormatHalf4,                // HALF4
+    MTLVertexFormatUInt1010102Normalized // R10G10B10A2_UNORM
 };
 SDL_COMPILE_TIME_ASSERT(SDLToMetal_VertexFormat, SDL_arraysize(SDLToMetal_VertexFormat) == SDL_GPU_VERTEXELEMENTFORMAT_MAX_ENUM_VALUE);
 
@@ -430,6 +431,7 @@ static MTLDepthClipMode SDLToMetal_DepthClipMode(
 // Structs
 
 typedef struct MetalRenderer MetalRenderer;
+typedef struct MetalCommandBuffer MetalCommandBuffer;
 
 typedef struct MetalTexture
 {
@@ -453,7 +455,7 @@ typedef struct MetalTextureContainer
 
 typedef struct MetalFence
 {
-    SDL_AtomicInt complete;
+    id<MTLCommandBuffer> commandBuffer;
     SDL_AtomicInt referenceCount;
 } MetalFence;
 
@@ -607,7 +609,6 @@ typedef struct MetalCommandBuffer
 
     // Fences
     MetalFence *fence;
-    bool autoReleaseFence;
 
     // Reference Counting
     MetalBuffer **usedBuffers;
@@ -1816,12 +1817,15 @@ static void METAL_UploadToTexture(
 
         MetalTexture *metalTexture = METAL_INTERNAL_PrepareTextureForWrite(renderer, textureContainer, cycle);
 
+        Uint32 pixelsPerRow = source->pixels_per_row == 0 ? destination->w : source->pixels_per_row;
+        Uint32 rowsPerLayer = source->rows_per_layer == 0 ? destination->h : source->rows_per_layer;
+
         [metalCommandBuffer->blitEncoder
                  copyFromBuffer:bufferContainer->activeBuffer->handle
                    sourceOffset:source->offset
-              sourceBytesPerRow:BytesPerRow(destination->w, textureContainer->header.info.format)
+              sourceBytesPerRow:BytesPerRow(pixelsPerRow, textureContainer->header.info.format)
             // sourceBytesPerImage expects the stride between 2D images (slices) of a 3D texture, not the size of the entire region
-            sourceBytesPerImage:SDL_CalculateGPUTextureFormatSize(textureContainer->header.info.format, destination->w, destination->h, 1)
+            sourceBytesPerImage:SDL_CalculateGPUTextureFormatSize(textureContainer->header.info.format, pixelsPerRow, rowsPerLayer, 1)
                      sourceSize:MTLSizeMake(destination->w, destination->h, destination->d)
                       toTexture:metalTexture->handle
                destinationSlice:destination->layer
@@ -2093,7 +2097,6 @@ static Uint8 METAL_INTERNAL_CreateFence(
     MetalFence *fence;
 
     fence = SDL_calloc(1, sizeof(MetalFence));
-    SDL_SetAtomicInt(&fence->complete, 0);
     SDL_SetAtomicInt(&fence->referenceCount, 0);
 
     // Add it to the available pool
@@ -2136,7 +2139,7 @@ static bool METAL_INTERNAL_AcquireFence(
 
     // Associate the fence with the command buffer
     commandBuffer->fence = fence;
-    SDL_SetAtomicInt(&fence->complete, 0); // FIXME: Is this right?
+    fence->commandBuffer = commandBuffer->handle;
     (void)SDL_AtomicIncRef(&commandBuffer->fence->referenceCount);
 
     return true;
@@ -2161,8 +2164,6 @@ static SDL_GPUCommandBuffer *METAL_AcquireCommandBuffer(
             commandBuffer->fragmentUniformBuffers[i] = NULL;
             commandBuffer->computeUniformBuffers[i] = NULL;
         }
-
-        commandBuffer->autoReleaseFence = true;
 
         SDL_UnlockMutex(renderer->acquireCommandBufferLock);
 
@@ -2417,7 +2418,6 @@ static void METAL_BindGraphicsPipeline(
 {
     @autoreleasepool {
         MetalCommandBuffer *metalCommandBuffer = (MetalCommandBuffer *)commandBuffer;
-        MetalGraphicsPipeline *previousPipeline = metalCommandBuffer->graphics_pipeline;
         MetalGraphicsPipeline *pipeline = (MetalGraphicsPipeline *)graphicsPipeline;
         SDL_GPURasterizerState *rast = &pipeline->rasterizerState;
         Uint32 i;
@@ -2444,6 +2444,14 @@ static void METAL_BindGraphicsPipeline(
                 setDepthStencilState:pipeline->depth_stencil_state];
         }
 
+        // Mark that bindings are needed
+        metalCommandBuffer->needVertexSamplerBind = true;
+        metalCommandBuffer->needVertexStorageTextureBind = true;
+        metalCommandBuffer->needVertexStorageBufferBind = true;
+        metalCommandBuffer->needFragmentSamplerBind = true;
+        metalCommandBuffer->needFragmentStorageTextureBind = true;
+        metalCommandBuffer->needFragmentStorageBufferBind = true;
+
         for (i = 0; i < MAX_UNIFORM_BUFFERS_PER_STAGE; i += 1) {
             metalCommandBuffer->needVertexUniformBufferBind[i] = true;
             metalCommandBuffer->needFragmentUniformBufferBind[i] = true;
@@ -2460,17 +2468,6 @@ static void METAL_BindGraphicsPipeline(
             if (metalCommandBuffer->fragmentUniformBuffers[i] == NULL) {
                 metalCommandBuffer->fragmentUniformBuffers[i] = METAL_INTERNAL_AcquireUniformBufferFromPool(
                     metalCommandBuffer);
-            }
-        }
-
-        if (previousPipeline && previousPipeline != pipeline) {
-            // if the number of uniform buffers has changed, the storage buffers will move as well
-            // and need a rebind at their new locations
-            if (previousPipeline->header.num_vertex_uniform_buffers != pipeline->header.num_vertex_uniform_buffers) {
-                metalCommandBuffer->needVertexStorageBufferBind = true;
-            }
-            if (previousPipeline->header.num_fragment_uniform_buffers != pipeline->header.num_fragment_uniform_buffers) {
-                metalCommandBuffer->needFragmentStorageBufferBind = true;
             }
         }
     }
@@ -3188,6 +3185,10 @@ static void METAL_BindComputePipeline(
             }
         }
 
+        metalCommandBuffer->needComputeSamplerBind = true;
+        metalCommandBuffer->needComputeReadOnlyStorageTextureBind = true;
+        metalCommandBuffer->needComputeReadOnlyStorageBufferBind = true;
+
         // Bind write-only resources
         if (pipeline->header.numReadWriteStorageTextures > 0) {
             [metalCommandBuffer->computeEncoder setTextures:metalCommandBuffer->computeReadWriteTextures
@@ -3407,6 +3408,8 @@ static void METAL_ReleaseFence(
 {
     MetalFence *metalFence = (MetalFence *)fence;
     if (SDL_AtomicDecRef(&metalFence->referenceCount)) {
+        // Nothing references the fence anymore, so the command buffer can go too.
+        metalFence->commandBuffer = nil;
         METAL_INTERNAL_ReleaseFenceToPool(
             (MetalRenderer *)driverData,
             (MetalFence *)fence);
@@ -3512,8 +3515,9 @@ static void METAL_INTERNAL_CleanCommandBuffer(
     commandBuffer->needComputeReadOnlyStorageTextureBind = false;
     SDL_zeroa(commandBuffer->needComputeUniformBufferBind);
 
-    // The fence is now available (unless SubmitAndAcquireFence was called)
-    if (commandBuffer->autoReleaseFence) {
+    // Drop the command buffer's reference to the fence. A cancelled
+    // command buffer never acquired one.
+    if (!cancel) {
         METAL_ReleaseFence(
             (SDL_GPURenderer *)renderer,
             (SDL_GPUFence *)commandBuffer->fence);
@@ -3587,6 +3591,12 @@ static void METAL_INTERNAL_PerformPendingDestroys(
 }
 
 // Fences
+static bool METAL_INTERNAL_IsFenceBusy(
+        MetalFence *fence
+) {
+    MTLCommandBufferStatus status = fence->commandBuffer.status;
+    return status == MTLCommandBufferStatusCommitted || status == MTLCommandBufferStatusScheduled;
+}
 
 static bool METAL_WaitForFences(
     SDL_GPURenderer *driverData,
@@ -3596,20 +3606,19 @@ static bool METAL_WaitForFences(
 {
     @autoreleasepool {
         MetalRenderer *renderer = (MetalRenderer *)driverData;
-        bool waiting;
 
         if (waitAll) {
             for (Uint32 i = 0; i < numFences; i += 1) {
-                while (!SDL_GetAtomicInt(&((MetalFence *)fences[i])->complete)) {
-                    // Spin!
-                }
+                MetalFence *fence = (MetalFence *)fences[i];
+                [fence->commandBuffer waitUntilCompleted];
             }
         } else {
-            waiting = 1;
+            bool waiting = true;
             while (waiting) {
                 for (Uint32 i = 0; i < numFences; i += 1) {
-                    if (SDL_GetAtomicInt(&((MetalFence *)fences[i])->complete) > 0) {
-                        waiting = 0;
+                    MetalFence *fence = (MetalFence *)fences[i];
+                    if (!METAL_INTERNAL_IsFenceBusy(fence)) {
+                        waiting = false;
                         break;
                     }
                 }
@@ -3627,7 +3636,7 @@ static bool METAL_QueryFence(
     SDL_GPUFence *fence)
 {
     MetalFence *metalFence = (MetalFence *)fence;
-    return SDL_GetAtomicInt(&metalFence->complete) == 1;
+    return !METAL_INTERNAL_IsFenceBusy(metalFence);
 }
 
 // Window and Swapchain Management
@@ -3831,6 +3840,10 @@ static void METAL_ReleaseWindow(
             }
         }
         SDL_UnlockMutex(renderer->windowLock);
+
+        windowData->layer = nil;
+        windowData->drawable = nil;
+        windowData->texture.handle = nil;
 
         SDL_free(windowData);
 
@@ -4063,8 +4076,9 @@ static bool METAL_SetAllowedFramesInFlight(
 
 // Submission
 
-static bool METAL_Submit(
-    SDL_GPUCommandBuffer *commandBuffer)
+static bool METAL_INTERNAL_Submit(
+    SDL_GPUCommandBuffer *commandBuffer,
+    SDL_GPUFence **fence)
 {
     @autoreleasepool {
         MetalCommandBuffer *metalCommandBuffer = (MetalCommandBuffer *)commandBuffer;
@@ -4075,6 +4089,13 @@ static bool METAL_Submit(
         if (!METAL_INTERNAL_AcquireFence(renderer, metalCommandBuffer)) {
             SDL_UnlockMutex(renderer->submitLock);
             return false;
+        }
+
+        // Give the caller its own reference while submitLock is held, another
+        // thread could recycle this command buffer as soon as the lock is released.
+        if (fence) {
+            (void)SDL_AtomicIncRef(&metalCommandBuffer->fence->referenceCount);
+            *fence = (SDL_GPUFence *)metalCommandBuffer->fence;
         }
 
         // Enqueue present requests, if applicable
@@ -4089,11 +4110,6 @@ static bool METAL_Submit(
 
             windowData->frameCounter = (windowData->frameCounter + 1) % renderer->allowedFramesInFlight;
         }
-
-        // Notify the fence when the command buffer has completed
-        [metalCommandBuffer->handle addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-          SDL_AtomicIncRef(&metalCommandBuffer->fence->complete);
-        }];
 
         // Submit the command buffer
         [metalCommandBuffer->handle commit];
@@ -4112,7 +4128,7 @@ static bool METAL_Submit(
 
         // Check if we can perform any cleanups
         for (Sint32 i = renderer->submittedCommandBufferCount - 1; i >= 0; i -= 1) {
-            if (SDL_GetAtomicInt(&renderer->submittedCommandBuffers[i]->fence->complete)) {
+            if (!METAL_INTERNAL_IsFenceBusy(renderer->submittedCommandBuffers[i]->fence)) {
                 METAL_INTERNAL_CleanCommandBuffer(
                     renderer,
                     renderer->submittedCommandBuffers[i],
@@ -4128,15 +4144,20 @@ static bool METAL_Submit(
     }
 }
 
+static bool METAL_Submit(
+    SDL_GPUCommandBuffer *commandBuffer)
+{
+    return METAL_INTERNAL_Submit(commandBuffer, NULL);
+}
+
 static SDL_GPUFence *METAL_SubmitAndAcquireFence(
     SDL_GPUCommandBuffer *commandBuffer)
 {
-    MetalCommandBuffer *metalCommandBuffer = (MetalCommandBuffer *)commandBuffer;
-    metalCommandBuffer->autoReleaseFence = false;
-    if (!METAL_Submit(commandBuffer)) {
+    SDL_GPUFence *fence = NULL;
+    if (!METAL_INTERNAL_Submit(commandBuffer, &fence)) {
         return NULL;
     }
-    return (SDL_GPUFence *)metalCommandBuffer->fence;
+    return fence;
 }
 
 static bool METAL_Cancel(
@@ -4145,7 +4166,6 @@ static bool METAL_Cancel(
     MetalCommandBuffer *metalCommandBuffer = (MetalCommandBuffer *)commandBuffer;
     MetalRenderer *renderer = metalCommandBuffer->renderer;
 
-    metalCommandBuffer->autoReleaseFence = false;
     SDL_LockMutex(renderer->submitLock);
     METAL_INTERNAL_CleanCommandBuffer(renderer, metalCommandBuffer, true);
     SDL_UnlockMutex(renderer->submitLock);
@@ -4165,9 +4185,8 @@ static bool METAL_Wait(
          * Sort of equivalent to vkDeviceWaitIdle.
          */
         for (Uint32 i = 0; i < renderer->submittedCommandBufferCount; i += 1) {
-            while (!SDL_GetAtomicInt(&renderer->submittedCommandBuffers[i]->fence->complete)) {
-                // Spin!
-            }
+            SDL_GPUFence *opaqueFence = (SDL_GPUFence *)renderer->submittedCommandBuffers[i]->fence;
+            METAL_WaitForFences(driverData, true, &opaqueFence, 1);
         }
 
         SDL_LockMutex(renderer->submitLock);
@@ -4459,11 +4478,10 @@ static void METAL_INTERNAL_InitBlitResources(
     }
 
     // Create samplers
+    SDL_zero(createinfo);
     createinfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     createinfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     createinfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-    createinfo.enable_anisotropy = 0;
-    createinfo.enable_compare = 0;
     createinfo.mag_filter = SDL_GPU_FILTER_NEAREST;
     createinfo.min_filter = SDL_GPU_FILTER_NEAREST;
     createinfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;

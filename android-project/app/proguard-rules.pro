@@ -24,6 +24,7 @@
     int createCustomCursor(int[], int, int, int, int);
     void destroyCustomCursor(int);
     android.app.Activity getContext();
+    java.lang.String getDeviceFormFactor();
     boolean getManifestEnvironmentVariables();
     android.view.Surface getNativeSurface();
     void initTouch();
@@ -39,7 +40,9 @@
     boolean showToast(java.lang.String, int, int, int, int);
     boolean sendMessage(int, int);
     boolean setActivityTitle(java.lang.String);
+    void setBackButtonTrapEnabled(boolean);
     boolean setCustomCursor(int);
+    void setDesiredHDRHeadroom(float);
     void setOrientation(int, int, boolean, java.lang.String);
     boolean setRelativeMouseEnabled(boolean);
     boolean setSystemCursor(int);
@@ -69,9 +72,9 @@
 
 -keep,includedescriptorclasses,allowoptimization class org.libsdl.app.SDLControllerManager {
     void joystickSetSensorsEnabled(int, boolean);
-    void pollInputDevices();
+    void detectDevices();
     void joystickSetLED(int, int, int, int);
-    void pollHapticDevices();
+    void detectHapticDevices();
     void hapticRun(int, float, int);
     void hapticRumble(int, float, float, int);
     void hapticStop(int);

@@ -180,7 +180,7 @@ extern SDL_DECLSPEC SDL_Surface * SDLCALL SDL_CreateSurface(int width, int heigh
  * you must free the surface before you free the pixel data.
  *
  * Pitch is the offset in bytes from one row of pixels to the next, e.g.
- * `width*4` for `SDL_PIXELFORMAT_RGBA8888`.
+ * `(width * 4)` for `SDL_PIXELFORMAT_RGBA8888`.
  *
  * You may pass NULL for pixels and 0 for pitch to create a surface that you
  * will fill in with valid values later.
@@ -594,11 +594,11 @@ extern SDL_DECLSPEC SDL_Surface * SDLCALL SDL_LoadBMP(const char *file);
 /**
  * Save a surface to a seekable SDL data stream in BMP format.
  *
- * Surfaces with a 24-bit, 32-bit and paletted 8-bit format get saved in the
- * BMP directly. Other RGB formats with 8-bit or higher get converted to a
- * 24-bit surface or, if they have an alpha mask or a colorkey, to a 32-bit
- * surface before they are saved. YUV and paletted 1-bit and 4-bit formats are
- * not supported.
+ * Surfaces with a 24-bit, 32-bit and paletted format get saved in the BMP
+ * directly. Other RGB formats with 8-bit or higher get converted to a 24-bit
+ * surface or, if they have an alpha mask or a colorkey, to a 32-bit surface
+ * before they are saved. YUV and LSB paletted 1-bit and 4-bit formats are not
+ * supported.
  *
  * \param surface the SDL_Surface structure containing the image to be saved.
  * \param dst a data stream to save to.
@@ -620,11 +620,11 @@ extern SDL_DECLSPEC bool SDLCALL SDL_SaveBMP_IO(SDL_Surface *surface, SDL_IOStre
 /**
  * Save a surface to a file in BMP format.
  *
- * Surfaces with a 24-bit, 32-bit and paletted 8-bit format get saved in the
- * BMP directly. Other RGB formats with 8-bit or higher get converted to a
- * 24-bit surface or, if they have an alpha mask or a colorkey, to a 32-bit
- * surface before they are saved. YUV and paletted 1-bit and 4-bit formats are
- * not supported.
+ * Surfaces with a 24-bit, 32-bit, paletted formats get saved in the BMP
+ * directly. Other RGB formats with 8-bit or higher get converted to a 24-bit
+ * surface or, if they have an alpha mask or a colorkey, to a 32-bit surface
+ * before they are saved. YUV and LSB paletted 1-bit and 4-bit formats are not
+ * supported.
  *
  * \param surface the SDL_Surface structure containing the image to be saved.
  * \param file a file to save to.
@@ -1703,7 +1703,7 @@ extern SDL_DECLSPEC Uint32 SDLCALL SDL_MapSurfaceRGB(SDL_Surface *surface, Uint8
 extern SDL_DECLSPEC Uint32 SDLCALL SDL_MapSurfaceRGBA(SDL_Surface *surface, Uint8 r, Uint8 g, Uint8 b, Uint8 a);
 
 /**
- * Retrieves a single pixel from a surface.
+ * Retrieves a single pixel from a surface as RGBA in the sRGB colorspace.
  *
  * This function prioritizes correctness over speed: it is suitable for unit
  * tests, but is not intended for use in a game engine.
@@ -1733,7 +1733,7 @@ extern SDL_DECLSPEC Uint32 SDLCALL SDL_MapSurfaceRGBA(SDL_Surface *surface, Uint
 extern SDL_DECLSPEC bool SDLCALL SDL_ReadSurfacePixel(SDL_Surface *surface, int x, int y, Uint8 *r, Uint8 *g, Uint8 *b, Uint8 *a);
 
 /**
- * Retrieves a single pixel from a surface.
+ * Retrieves a single pixel from a surface as RGBA in the sRGB colorspace.
  *
  * This function prioritizes correctness over speed: it is suitable for unit
  * tests, but is not intended for use in a game engine.

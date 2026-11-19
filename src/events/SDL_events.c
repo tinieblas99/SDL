@@ -161,6 +161,31 @@ static struct
 } SDL_EventQ = { NULL, false, { 0 }, 0, NULL, NULL, NULL };
 
 
+SDL_Mutex *SDL_event_lock = NULL; // This needs to support recursive locks
+SDL_Mutex *SDL_joystick_lock = NULL; // This needs to support recursive locks
+
+void SDL_CreateEventLock(void)
+{
+    if (!SDL_event_lock) {
+        SDL_event_lock = SDL_CreateMutex();
+    }
+    if (!SDL_joystick_lock) {
+        SDL_joystick_lock = SDL_CreateMutex();
+    }
+}
+
+void SDL_DestroyEventLock(void)
+{
+    if (SDL_event_lock) {
+        SDL_DestroyMutex(SDL_event_lock);
+        SDL_event_lock = NULL;
+    }
+    if (SDL_joystick_lock) {
+        SDL_DestroyMutex(SDL_joystick_lock);
+        SDL_joystick_lock = NULL;
+    }
+}
+
 static void SDL_CleanupTemporaryMemory(void *data)
 {
     SDL_TemporaryMemoryState *state = (SDL_TemporaryMemoryState *)data;
@@ -404,13 +429,28 @@ void SDL_FreeTemporaryMemory(void)
     }
 }
 
-#ifndef SDL_JOYSTICK_DISABLED
+#ifdef SDL_JOYSTICK_DISABLED
+
+void SDL_OnUpdateJoysticksChanged(void)
+{
+}
+
+#else
 
 static bool SDL_update_joysticks = true;
 
+void SDL_OnUpdateJoysticksChanged(void)
+{
+    if (SDL_JoystickUpdateThreadRunning() && SDL_GetJoystickAsyncUpdateInterval() >= 0) {
+        SDL_update_joysticks = false;
+    } else {
+        SDL_update_joysticks = SDL_GetHintBoolean(SDL_HINT_AUTO_UPDATE_JOYSTICKS, true);
+    }
+}
+
 static void SDLCALL SDL_AutoUpdateJoysticksChanged(void *userdata, const char *name, const char *oldValue, const char *hint)
 {
-    SDL_update_joysticks = SDL_GetStringBoolean(hint, true);
+    SDL_OnUpdateJoysticksChanged();
 }
 
 #endif // !SDL_JOYSTICK_DISABLED
@@ -894,6 +934,11 @@ int SDL_GetEventDescription(const SDL_Event *event, char *buf, int buflen)
         break;
 #undef PRINT_CAMERADEV_EVENT
 
+        SDL_EVENT_CASE(SDL_EVENT_NOTIFICATION_ACTION_INVOKED)
+        (void)SDL_snprintf(details, sizeof(details), " (timestamp=%" SDL_PRIu64 " which=%d button_id='%s')",
+                           event->notification.timestamp, (uint)event->notification.which, event->notification.action_id);
+        break;
+
         SDL_EVENT_CASE(SDL_EVENT_SENSOR_UPDATE)
         (void)SDL_snprintf(details, sizeof(details), " (timestamp=%" SDL_PRIu64 " which=%d data[0]=%f data[1]=%f data[2]=%f data[3]=%f data[4]=%f data[5]=%f)",
                            event->sensor.timestamp, (int)event->sensor.which,
@@ -965,8 +1010,9 @@ void SDL_StopEventLoop(void)
     const char *report = SDL_GetHint("SDL_EVENT_QUEUE_STATISTICS");
     int i;
     SDL_EventEntry *entry;
+    SDL_Mutex *lock = SDL_EventQ.lock;
 
-    SDL_LockMutex(SDL_EventQ.lock);
+    SDL_LockMutex(lock);
 
     SDL_EventQ.active = false;
 
@@ -1004,17 +1050,10 @@ void SDL_StopEventLoop(void)
     SDL_QuitEventWatchList(&SDL_event_watchers);
     SDL_QuitWindowEventWatch();
 
-    SDL_Mutex *lock = NULL;
-    if (SDL_EventQ.lock) {
-        lock = SDL_EventQ.lock;
-        SDL_EventQ.lock = NULL;
-    }
+    SDL_EventQ.lock = NULL;
 
     SDL_UnlockMutex(lock);
-
-    if (lock) {
-        SDL_DestroyMutex(lock);
-    }
+    SDL_DestroyMutex(lock);
 }
 
 // This function (and associated calls) may be called more than once
@@ -1162,6 +1201,7 @@ static int SDL_PeepEventsInternal(SDL_Event *events, int numevents, SDL_EventAct
                                   Uint32 minType, Uint32 maxType, bool include_sentinel)
 {
     int i, used, sentinels_expected = 0;
+    bool wakeup = false;
 
     // Lock the event queue
     used = 0;
@@ -1184,7 +1224,12 @@ static int SDL_PeepEventsInternal(SDL_Event *events, int numevents, SDL_EventAct
                 return -1;
             }
             for (i = 0; i < numevents; ++i) {
-                used += SDL_AddEvent(&events[i]);
+                if (SDL_AddEvent(&events[i])) {
+                    if (events[i].type != SDL_EVENT_POLL_SENTINEL) {
+                        wakeup = true;
+                    }
+                    ++used;
+                }
             }
         } else {
             SDL_EventEntry *entry, *next;
@@ -1222,7 +1267,7 @@ static int SDL_PeepEventsInternal(SDL_Event *events, int numevents, SDL_EventAct
     }
     SDL_UnlockMutex(SDL_EventQ.lock);
 
-    if (used > 0 && action == SDL_ADDEVENT) {
+    if (wakeup) {
         SDL_SendWakeupEvent();
     }
 
@@ -1604,6 +1649,19 @@ static Sint64 SDL_events_get_polling_interval(void)
     return poll_intervalNS;
 }
 
+static bool SDL_HasMainThreadCallbacks(void)
+{
+    bool result = false;
+
+    SDL_LockMutex(SDL_main_callbacks_lock);
+    if (SDL_main_callbacks_head) {
+        result = true;
+    }
+    SDL_UnlockMutex(SDL_main_callbacks_lock);
+
+    return result;
+}
+
 static int SDL_WaitEventTimeout_Device(SDL_VideoDevice *_this, SDL_Window *wakeup_window, SDL_Event *event, Uint64 start, Sint64 timeoutNS)
 {
     Sint64 loop_timeoutNS = timeoutNS;
@@ -1645,6 +1703,13 @@ static int SDL_WaitEventTimeout_Device(SDL_VideoDevice *_this, SDL_Window *wakeu
             }
         }
         SDL_SetAtomicPointer(&_this->wakeup_window, wakeup_window);
+        // Check again before waiting: another thread might have added an event
+        // or a main thread callback before wakeup_window was set
+        if (SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST) > 0 ||
+            SDL_HasMainThreadCallbacks()) {
+            SDL_SetAtomicPointer(&_this->wakeup_window, NULL);
+            continue;
+        }
         status = _this->WaitEventTimeout(_this, loop_timeoutNS);
         SDL_SetAtomicPointer(&_this->wakeup_window, NULL);
         if (status == 0 && poll_intervalNS != SDL_MAX_SINT64 && loop_timeoutNS == poll_intervalNS) {
@@ -1739,6 +1804,10 @@ bool SDL_WaitEventTimeoutNS(SDL_Event *event, Sint64 timeoutNS)
         }
     } else {
         // Has existing events
+        if (!event) {
+            // The application expects callbacks to run even if events are pending
+            SDL_RunMainThreadCallbacks();
+        }
         return true;
     }
     // We should have completely handled timeoutNS == 0 above
@@ -1833,7 +1902,7 @@ bool SDL_PushEvent(SDL_Event *event)
 void SDL_SetEventFilter(SDL_EventFilter filter, void *userdata)
 {
     SDL_EventEntry *event, *next;
-    SDL_LockMutex(SDL_event_watchers.lock);
+    SDL_LockMutex(SDL_event_lock);
     {
         // Set filter and discard pending events
         SDL_event_watchers.filter.callback = filter;
@@ -1852,18 +1921,18 @@ void SDL_SetEventFilter(SDL_EventFilter filter, void *userdata)
             SDL_UnlockMutex(SDL_EventQ.lock);
         }
     }
-    SDL_UnlockMutex(SDL_event_watchers.lock);
+    SDL_UnlockMutex(SDL_event_lock);
 }
 
 bool SDL_GetEventFilter(SDL_EventFilter *filter, void **userdata)
 {
     SDL_EventWatcher event_ok;
 
-    SDL_LockMutex(SDL_event_watchers.lock);
+    SDL_LockMutex(SDL_event_lock);
     {
         event_ok = SDL_event_watchers.filter;
     }
-    SDL_UnlockMutex(SDL_event_watchers.lock);
+    SDL_UnlockMutex(SDL_event_lock);
 
     if (filter) {
         *filter = event_ok.callback;

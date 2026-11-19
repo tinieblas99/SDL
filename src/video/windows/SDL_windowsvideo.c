@@ -136,6 +136,7 @@ struct ITaskbarList3
 // Initialization/Query functions
 static bool WIN_VideoInit(SDL_VideoDevice *_this);
 static void WIN_VideoQuit(SDL_VideoDevice *_this);
+static void WIN_VideoPreQuit(SDL_VideoDevice *_this);
 
 // Hints
 bool g_WindowsEnableMessageLoop = true;
@@ -161,6 +162,13 @@ static void SDLCALL UpdateWindowsRawKeyboardInputsink(void *userdata, const char
     SDL_VideoDevice *_this = (SDL_VideoDevice *)userdata;
     bool enabled = SDL_GetStringBoolean(newValue, false);
     WIN_SetRawKeyboardFlag_Inputsink(_this, enabled);
+}
+
+static void SDLCALL UpdateWindowsRawMouseNoLegacy(void *userdata, const char *name, const char *oldValue, const char *newValue)
+{
+    SDL_VideoDevice *_this = (SDL_VideoDevice *)userdata;
+    bool enabled = SDL_GetStringBoolean(newValue, false);
+    WIN_SetRawMouseFlag_NoLegacy(_this, enabled);
 }
 
 static void SDLCALL UpdateWindowsEnableMessageLoop(void *userdata, const char *name, const char *oldValue, const char *newValue)
@@ -320,6 +328,7 @@ static SDL_VideoDevice *WIN_CreateDevice(void)
 
     // Set the function pointers
     device->VideoInit = WIN_VideoInit;
+    device->VideoPreQuit = WIN_VideoPreQuit;
     device->VideoQuit = WIN_VideoQuit;
 #if !defined(SDL_PLATFORM_XBOXONE) && !defined(SDL_PLATFORM_XBOXSERIES)
     device->RefreshDisplays = WIN_RefreshDisplays;
@@ -464,7 +473,10 @@ static BOOL WIN_DeclareDPIAwareUnaware(SDL_VideoDevice *_this)
     SDL_VideoData *data = _this->internal;
 
     if (data->SetProcessDpiAwarenessContext) {
-        return data->SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
+        if (data->SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE)) {
+            data->dpi_unaware_context_declared = true;
+            return TRUE;
+        }
     } else if (data->SetProcessDpiAwareness) {
         // Windows 8.1
         return SUCCEEDED(data->SetProcessDpiAwareness(PROCESS_DPI_UNAWARE));
@@ -648,6 +660,7 @@ static bool WIN_VideoInit(SDL_VideoDevice *_this)
     SDL_AddHintCallback(SDL_HINT_WINDOWS_RAW_KEYBOARD, UpdateWindowsRawKeyboard, _this);
     SDL_AddHintCallback(SDL_HINT_WINDOWS_RAW_KEYBOARD_EXCLUDE_HOTKEYS, UpdateWindowsRawKeyboardNoHotkeys, _this);
     SDL_AddHintCallback(SDL_HINT_WINDOWS_RAW_KEYBOARD_INPUTSINK, UpdateWindowsRawKeyboardInputsink, _this);
+    SDL_AddHintCallback(SDL_HINT_WINDOWS_RAW_MOUSE_NOLEGACY, UpdateWindowsRawMouseNoLegacy, _this);
     SDL_AddHintCallback(SDL_HINT_WINDOWS_ENABLE_MESSAGELOOP, UpdateWindowsEnableMessageLoop, NULL);
     SDL_AddHintCallback(SDL_HINT_WINDOWS_ENABLE_MENU_MNEMONICS, UpdateWindowsEnableMenuMnemonics, NULL);
     SDL_AddHintCallback(SDL_HINT_WINDOW_FRAME_USABLE_WHILE_CURSOR_HIDDEN, UpdateWindowFrameUsableWhileCursorHidden, NULL);
@@ -658,6 +671,13 @@ static bool WIN_VideoInit(SDL_VideoDevice *_this)
 #endif
 
     return true;
+}
+
+void WIN_VideoPreQuit(SDL_VideoDevice *_this)
+{
+#if !defined(SDL_PLATFORM_XBOXONE) && !defined(SDL_PLATFORM_XBOXSERIES)
+    WIN_QuitDeviceNotification();  // stop hotplug thread before the rest of the video subsystem cleans up.
+#endif
 }
 
 void WIN_VideoQuit(SDL_VideoDevice *_this)
@@ -676,7 +696,6 @@ void WIN_VideoQuit(SDL_VideoDevice *_this)
 
 #if !defined(SDL_PLATFORM_XBOXONE) && !defined(SDL_PLATFORM_XBOXSERIES)
     WIN_QuitModes(_this);
-    WIN_QuitDeviceNotification();
     WIN_QuitKeyboard(_this);
     WIN_QuitMouse(_this);
 

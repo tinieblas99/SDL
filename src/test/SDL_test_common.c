@@ -1097,11 +1097,6 @@ static SDL_Surface *SDLTest_LoadIcon(const char *file)
         return NULL;
     }
 
-    if (icon->format == SDL_PIXELFORMAT_INDEX8) {
-        /* Set the colorkey */
-        SDL_SetSurfaceColorKey(icon, 1, *((Uint8 *)icon->pixels));
-    }
-
     return icon;
 }
 
@@ -2012,6 +2007,10 @@ void SDLTest_PrintEvent(const SDL_Event *event)
         SDL_Log("SDL EVENT: Camera device %" SDL_PRIu32 " permission denied",
                 event->cdevice.which);
         break;
+    case SDL_EVENT_NOTIFICATION_ACTION_INVOKED:
+        SDL_Log("SDL EVENT: Notification action for %" SDL_PRIu32 " button_id=%s",
+                event->notification.which, event->notification.action_id);
+        break;
     case SDL_EVENT_SENSOR_UPDATE:
         SDL_Log("SDL EVENT: Sensor update for %" SDL_PRIu32,
                 event->sensor.which);
@@ -2684,6 +2683,11 @@ SDL_AppResult SDLTest_CommonEventMainCallbacks(SDLTest_CommonState *state, const
         case SDLK_2:
             if (withControl) {
                 FullscreenTo(state, 1, event->key.windowID);
+            }
+            break;
+        case SDLK_9:
+            if (withControl) {
+                SDL_assert_always(!"Test Assertion");
             }
             break;
         case SDLK_ESCAPE:

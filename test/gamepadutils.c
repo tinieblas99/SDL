@@ -420,14 +420,9 @@ struct GamepadImage
 static SDL_Texture *CreateTexture(SDL_Renderer *renderer, unsigned char *data, unsigned int len)
 {
     SDL_Texture *texture = NULL;
-    SDL_Surface *surface;
     SDL_IOStream *src = SDL_IOFromConstMem(data, len);
     if (src) {
-        surface = SDL_LoadPNG_IO(src, true);
-        if (surface) {
-            texture = SDL_CreateTextureFromSurface(renderer, surface);
-            SDL_DestroySurface(surface);
-        }
+        texture = SDL_LoadTexture_IO(renderer, src, true);
     }
     return texture;
 }
@@ -999,7 +994,7 @@ void RenderGamepadImage(GamepadImage *ctx)
                     dst.y -= ctx->button_height / 2;
                     dst.w = ctx->button_width;
                     dst.h = ctx->button_height;
-                    SDL_SetTextureAlphaMod(ctx->button_texture, (Uint8)(finger->pressure * SDL_ALPHA_OPAQUE));
+                    SDL_SetTextureAlphaMod(ctx->button_texture, (Uint8)((0.1f + (finger->pressure * 0.9f)) * SDL_ALPHA_OPAQUE));
                     SDL_RenderTexture(ctx->renderer, ctx->button_texture, NULL, &dst);
                     SDL_SetTextureAlphaMod(ctx->button_texture, SDL_ALPHA_OPAQUE);
                 }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.16...4.4)
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
   set(cmake_build_type_undefined 1)
@@ -12,12 +12,6 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
 else()
   set(SDL3_MAINPROJECT OFF)
 endif()
-
-# Add UTF-8 encoding support for MSVC compiler.
-# This ensures that the MSVC compiler interprets source files as UTF-8 encoded,
-# which is useful for projects containing non-ASCII characters in source files.
-add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
-add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 
 # By default, configure SDL3 in RelWithDebInfo configuration
 if(SDL3_MAINPROJECT)
@@ -78,6 +72,8 @@ include("${SDL3_SOURCE_DIR}/cmake/GetGitRevisionDescription.cmake")
 include("${SDL3_SOURCE_DIR}/cmake/3rdparty.cmake")
 include("${SDL3_SOURCE_DIR}/cmake/PreseedMSVCCache.cmake")
 include("${SDL3_SOURCE_DIR}/cmake/PreseedEmscriptenCache.cmake")
+include("${SDL3_SOURCE_DIR}/cmake/PreseedOpenHarmonyCache.cmake")
+include("${SDL3_SOURCE_DIR}/cmake/PreseedHaikuCache.cmake")
 include("${SDL3_SOURCE_DIR}/cmake/PreseedNokiaNGageCache.cmake")
 include("${SDL3_SOURCE_DIR}/cmake/PreseedDOSCache.cmake")
 
@@ -181,6 +177,11 @@ if(USE_GCC OR USE_CLANG OR USE_INTELCC OR USE_QCC OR USE_TCC)
   set(SDL_GCC_ATOMICS_DEFAULT ON)
 endif()
 
+set(SDL_LEAN_AND_MEAN_DEFAULT FALSE)
+if(NGAGE)
+  set(SDL_LEAN_AND_MEAN_DEFAULT TRUE)
+endif()
+
 # Default option knobs
 set(SDL_LIBC_DEFAULT ON)
 set(SDL_SYSTEM_ICONV_DEFAULT ON)
@@ -267,6 +268,7 @@ define_sdl_subsystem(Power)
 define_sdl_subsystem(Sensor)
 define_sdl_subsystem(Dialog)
 define_sdl_subsystem(Tray)
+define_sdl_subsystem(Notification)
 
 cmake_dependent_option(SDL_FRAMEWORK "Build SDL libraries as Apple Framework" OFF "APPLE" OFF)
 if(SDL_FRAMEWORK)
@@ -315,7 +317,7 @@ dep_option(SDL_SSE4_2              "Use SSE4.2 assembly routines" ON "SDL_ASSEMB
 dep_option(SDL_MMX                 "Use MMX assembly routines" ON "SDL_ASSEMBLY;SDL_CPU_X86 OR SDL_CPU_X64" OFF)
 dep_option(SDL_ALTIVEC             "Use Altivec assembly routines" ON "SDL_ASSEMBLY;SDL_CPU_POWERPC32 OR SDL_CPU_POWERPC64" OFF)
 dep_option(SDL_ARMNEON             "Use NEON assembly routines" ON "SDL_ASSEMBLY;SDL_CPU_ARM32 OR SDL_CPU_ARM64" OFF)
-dep_option(SDL_ARMSVE2             "Use SVE2 assembly routines" ON "SDL_ASSEMBLY;SDL_CPU_ARM64" OFF)
+dep_option(SDL_ARMSVE2             "Use SVE2 assembly routines" ON "SDL_ASSEMBLY;SDL_CPU_ARM64 AND NOT OHOS" OFF)
 dep_option(SDL_LSX                 "Use LSX assembly routines" ON "SDL_ASSEMBLY;SDL_CPU_LOONGARCH64" OFF)
 dep_option(SDL_LASX                "Use LASX assembly routines" ON "SDL_ASSEMBLY;SDL_CPU_LOONGARCH64" OFF)
 
@@ -378,7 +380,7 @@ dep_option(SDL_RENDER_D3D12        "Enable the Direct3D 12 render driver" ON "SD
 dep_option(SDL_RENDER_METAL        "Enable the Metal render driver" ON "SDL_RENDER;APPLE" OFF)
 dep_option(SDL_RENDER_GPU          "Enable the SDL_GPU render driver" ON "SDL_RENDER;SDL_GPU" OFF)
 dep_option(SDL_VIVANTE             "Use Vivante EGL video driver" ON "${UNIX_SYS};SDL_CPU_ARM32" OFF)
-dep_option(SDL_VULKAN              "Enable Vulkan support" "${SDL_VULKAN_DEFAULT}" "SDL_VIDEO;ANDROID OR APPLE OR LINUX OR FREEBSD OR OPENBSD OR WINDOWS OR CYGWIN" OFF)
+dep_option(SDL_VULKAN              "Enable Vulkan support" "${SDL_VULKAN_DEFAULT}" "SDL_VIDEO;ANDROID OR APPLE OR LINUX OR FREEBSD OR OPENBSD OR WINDOWS OR CYGWIN OR OHOS" OFF)
 dep_option(SDL_RENDER_VULKAN       "Enable the Vulkan render driver" ON "SDL_RENDER;SDL_VULKAN" OFF)
 dep_option(SDL_METAL               "Enable Metal support" ON "APPLE" OFF)
 set_option(SDL_OPENVR              "Use OpenVR video driver" OFF)
@@ -393,11 +395,13 @@ dep_option(SDL_HIDAPI_LIBUSB       "Use libusb for low level joystick drivers" O
 dep_option(SDL_HIDAPI_LIBUSB_SHARED "Dynamically load libusb support" ON "SDL_HIDAPI_LIBUSB;SDL_DEPS_SHARED" OFF)
 dep_option(SDL_HIDAPI_JOYSTICK     "Use HIDAPI for low level joystick drivers" ON SDL_HIDAPI OFF)
 dep_option(SDL_VIRTUAL_JOYSTICK    "Enable the virtual-joystick driver" ON SDL_HIDAPI OFF)
-set_option(SDL_LIBUDEV             "Enable libudev support" ON)
+dep_option(SDL_LIBUDEV             "Enable libudev support" ON ${UNIX_SYS} OFF)
+dep_option(SDL_LIBUDEV_SHARED      "Dynamically load libudev support" ON "SDL_LIBUDEV;SDL_DEPS_SHARED" OFF)
 set_option(SDL_ASAN                "Use AddressSanitizer to detect memory errors" OFF)
 set_option(SDL_CCACHE              "Use Ccache to speed up build" OFF)
 set_option(SDL_CLANG_TIDY          "Run clang-tidy static analysis" OFF)
 dep_option(SDL_GPU_OPENXR          "Build SDL_GPU with OpenXR support" ON "SDL_GPU;NOT RISCOS" OFF)
+set_option(SDL_LEAN_AND_MEAN       "Build a lean SDL library with reduced graphics functionality" ${SDL_LEAN_AND_MEAN_DEFAULT})
 
 if(EMSCRIPTEN)
   option_string(SDL_EMSCRIPTEN_PERSISTENT_PATH  "Path to mount Emscripten IDBFS at startup or '' to disable" "")
@@ -459,6 +463,7 @@ if (NGAGE)
   set(SDL_DUMMYAUDIO       OFF)
   set(SDL_DUMMYCAMERA      OFF)
   set(SDL_DUMMYVIDEO       OFF)
+  set(SDL_NOTIFICATION     OFF)
   set(SDL_OFFSCREEN        OFF)
   set(SDL_RENDER_GPU       OFF)
   set(SDL_TRAY             OFF)
@@ -502,14 +507,6 @@ if(SDL_SHARED)
   SDL_AddCommonCompilerFlags(SDL3-shared)
   target_compile_definitions(SDL3-shared PRIVATE "$<$<CONFIG:Debug>:DEBUG>")
   set_property(TARGET SDL3-shared PROPERTY UNITY_BUILD OFF)
-  if ("c_std_99" IN_LIST CMAKE_C_COMPILE_FEATURES)
-    target_compile_features(SDL3-shared PRIVATE c_std_99)
-  else()
-    # tcc does support the subset of C99 used by SDL
-    if (NOT USE_TCC)
-      message(WARNING "target_compile_features does not know c_std_99 for C compiler")
-    endif()
-  endif()
 endif()
 
 if(SDL_STATIC)
@@ -518,12 +515,13 @@ if(SDL_STATIC)
   SDL_AddCommonCompilerFlags(SDL3-static)
   target_compile_definitions(SDL3-static PRIVATE "$<$<CONFIG:Debug>:DEBUG>")
   set_property(TARGET SDL3-static PROPERTY UNITY_BUILD OFF)
-  if ("c_std_99" IN_LIST CMAKE_C_COMPILE_FEATURES)
-    target_compile_features(SDL3-static PRIVATE c_std_99)
-  else()
-    if (NOT USE_TCC)
-      message(WARNING "target_compile_features does not know c_std_99 for C compiler")
-    endif()
+endif()
+
+if("c_std_99" IN_LIST CMAKE_C_COMPILE_FEATURES)
+  sdl_compile_features(c_std_99)
+else()
+  if(NOT USE_TCC)
+    message(WARNING "target_compile_features does not know c_std_99 for C compiler")
   endif()
 endif()
 
@@ -555,7 +553,7 @@ endif()
 
 check_linker_supports_version_file(HAVE_WL_VERSION_SCRIPT)
 if(HAVE_WL_VERSION_SCRIPT)
-  sdl_shared_link_options("-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/dynapi/SDL_dynapi.sym")
+  sdl_shared_link_options("LINKER:SHELL:--version-script \"${CMAKE_CURRENT_SOURCE_DIR}/src/dynapi/SDL_dynapi.sym\"")
 else()
    # When building with tcc on Linux+glibc or Android, avoid emitting an error
    # for lack of support of the version-script linker flag: the option will be
@@ -638,6 +636,14 @@ if(NOT SDL_FOREGROUNDING_SIGNAL STREQUAL "OFF")
   sdl_compile_definitions(PRIVATE "SDL_FOREGROUNDING_SIGNAL=${SDL_FOREGROUNDING_SIGNAL}")
 endif()
 
+if(SDL_LEAN_AND_MEAN)
+  sdl_compile_definitions(
+    PRIVATE
+      SDL_LEAN_AND_MEAN
+  )
+  set(HAVE_LEAN_AND_MEAN TRUE)
+endif()
+
 # Compiler option evaluation
 if(USE_GCC OR USE_CLANG OR USE_INTELCC OR USE_QCC)
   if(SDL_GCC_ATOMICS)
@@ -696,13 +702,6 @@ if(USE_GCC OR USE_CLANG OR USE_INTELCC OR USE_QCC)
 endif()
 
 if(MSVC)
-  sdl_compile_definitions(
-    PRIVATE
-      "_CRT_SECURE_NO_DEPRECATE"
-      "_CRT_NONSTDC_NO_DEPRECATE"
-      "_CRT_SECURE_NO_WARNINGS"
-  )
-
   # CET support was added in VS 2019 16.7
   if(MSVC_VERSION GREATER 1926 AND CMAKE_GENERATOR_PLATFORM MATCHES "Win32|x64")
     # Mark SDL3.dll as compatible with Control-flow Enforcement Technology (CET)
@@ -941,6 +940,10 @@ if(SDL_ASSEMBLY)
           return 0;
         }]==] COMPILER_SUPPORTS_ARMSVE2)
       if(COMPILER_SUPPORTS_ARMSVE2)
+        # IMPORTANT: As not all AArch64 processors support SVE2, we only
+        #            attach the following compilation option to SVE
+        #            dedicated source files.
+        set(SVE2_MARCH_FLAG "-march=armv8-a+sve2")
         set(HAVE_ARMSVE2 TRUE)
       endif()
     cmake_pop_check_state()
@@ -954,6 +957,7 @@ if(SDL_ASSEMBLY)
         "${SDL3_SOURCE_DIR}/src/video/arm/SDL_sve2_blit_A.c"
         "${SDL3_SOURCE_DIR}/src/video/arm/SDL_sve2_blit_N.c"
         PROPERTIES
+          COMPILE_FLAGS "${SVE2_MARCH_FLAG}"
           SKIP_PRECOMPILE_HEADERS ON
       )
     endif()
@@ -1150,11 +1154,11 @@ if(SDL_LIBC)
     tan tanf trunc truncf
     unsetenv
     vsnprintf vsscanf
-    wcsnlen wcscmp wcsdup wcslcat wcslcpy wcslen wcsncmp wcsstr wcstol
+    wcsnlen wcscmp wcsdup wcslcat wcslcpy wcslen wcsncmp wcsstr wcstol wcstoll wcstoul wcstoull
   )
   if(WINDOWS OR CYGWIN)
     list(APPEND symbols_to_check
-      _copysign _fseeki64 _strrev _ui64toa _uitoa _ultoa _wcsdup
+      _copysign _fseeki64 _strrev _ui64toa _ultoa _wcsdup
     )
   else()
     list(APPEND symbols_to_check
@@ -1166,6 +1170,9 @@ if(SDL_LIBC)
   if(HAVE_LIBM)
     sdl_link_dependency(math LIBS m)
     list(APPEND CMAKE_REQUIRED_LIBRARIES m)
+  endif()
+  if(UNIX)
+    list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_LARGEFILE64_SOURCE=1)
   endif()
   foreach(_FN IN LISTS symbols_to_check)
     string(TOUPPER ${_FN} _UPPER)
@@ -1216,6 +1223,7 @@ if(SDL_LIBC)
 
   if(NOT WINDOWS)
     check_symbol_exists(fdatasync "unistd.h" HAVE_FDATASYNC)
+    check_symbol_exists(getexecpath "unistd.h" HAVE_GETEXECPATH)
     check_symbol_exists(gethostname "unistd.h" HAVE_GETHOSTNAME)
     check_symbol_exists(getpagesize "unistd.h" HAVE_GETPAGESIZE)
     check_symbol_exists(getresgid "unistd.h" HAVE_GETRESGID)
@@ -1328,6 +1336,8 @@ sdl_glob_sources(
   "${SDL3_SOURCE_DIR}/src/main/*.h"
   "${SDL3_SOURCE_DIR}/src/misc/*.c"
   "${SDL3_SOURCE_DIR}/src/misc/*.h"
+  "${SDL3_SOURCE_DIR}/src/notification/*.c"
+  "${SDL3_SOURCE_DIR}/src/notification/*.h"
   "${SDL3_SOURCE_DIR}/src/power/*.c"
   "${SDL3_SOURCE_DIR}/src/power/*.h"
   "${SDL3_SOURCE_DIR}/src/render/*.c"
@@ -1481,6 +1491,9 @@ if(ANDROID)
     "${SDL3_SOURCE_DIR}/src/core/android/*.h"
   )
 
+  # Core Android code (asset I/O, logging, sensors) needs these regardless of the video subsystem.
+  sdl_link_dependency(android_core LIBS dl log android)
+
   sdl_glob_sources(
     "${SDL3_SOURCE_DIR}/src/misc/android/*.c"
     "${SDL3_SOURCE_DIR}/src/misc/android/*.h"
@@ -1611,10 +1624,6 @@ if(ANDROID)
     )
     set(HAVE_SDL_VIDEO TRUE)
 
-    # Core stuff
-    # find_library(ANDROID_DL_LIBRARY dl)
-    # FIXME failing dlopen https://github.com/android-ndk/ndk/issues/929
-    sdl_link_dependency(android_video LIBS dl log android)
     sdl_compile_definitions(PRIVATE "GL_GLEXT_PROTOTYPES")
 
     #enable gles
@@ -1622,6 +1631,7 @@ if(ANDROID)
       set(SDL_VIDEO_OPENGL_EGL 1)
       set(HAVE_OPENGLES TRUE)
       set(SDL_VIDEO_OPENGL_ES 1)
+      set(SDL_VIDEO_RENDER_OGL_ES 1)
       set(SDL_VIDEO_OPENGL_ES2 1)
       set(SDL_VIDEO_RENDER_OGL_ES2 1)
 
@@ -1644,6 +1654,9 @@ if(ANDROID)
         endif()
       endif()
     endif()
+  else()
+    # SDL_events.c pumps Android events even with video disabled; this TU supplies the stub implementations.
+    sdl_sources("${SDL3_SOURCE_DIR}/src/video/android/SDL_androidevents.c")
   endif()
 
   CheckPTHREAD()
@@ -1660,7 +1673,7 @@ if(ANDROID)
       set(path_android_jar "${SDL_ANDROID_PLATFORM_ROOT}/android.jar")
       set(android_java_sources_root "${SDL3_SOURCE_DIR}/android-project/app/src/main/java")
       file(GLOB SDL_JAVA_SOURCES "${android_java_sources_root}/org/libsdl/app/*.java")
-      set(CMAKE_JAVA_COMPILE_FLAGS "-encoding;utf-8")
+      set(CMAKE_JAVA_COMPILE_FLAGS "-encoding;utf-8;-source;1.8;-target;1.8")
       add_jar(SDL3-jar
         SOURCES ${SDL_JAVA_SOURCES}
         INCLUDE_JARS "${path_android_jar}"
@@ -1673,7 +1686,7 @@ if(ANDROID)
       get_property(sdl3_jar_location TARGET SDL3-jar PROPERTY JAR_FILE)
       set_property(TARGET SDL3__Jar PROPERTY JAR_FILE "${sdl3_jar_location}")
       set(javasourcesjar "${SDL3_BINARY_DIR}/SDL3-${SDL3_VERSION}-sources.jar")
-      string(REGEX REPLACE "${android_java_sources_root}/" "" sdl_relative_java_sources "${SDL_JAVA_SOURCES}")
+      string(REPLACE "${android_java_sources_root}/" "" sdl_relative_java_sources "${SDL_JAVA_SOURCES}")
       add_custom_command(
         OUTPUT "${javasourcesjar}"
         COMMAND ${Java_JAR_EXECUTABLE} cf "${javasourcesjar}" ${sdl_relative_java_sources}
@@ -1707,6 +1720,170 @@ if(ANDROID)
   endif()
   if(TARGET SDL3-static)
     target_link_options(SDL3-static INTERFACE "-Wl,-u,JNI_OnLoad")
+  endif()
+
+elseif(OHOS)  # OpenHarmony/HarmonyOS
+  sdl_glob_sources(
+    "${SDL3_SOURCE_DIR}/src/core/openharmony/*.c"
+    "${SDL3_SOURCE_DIR}/src/core/openharmony/*.h"
+  )
+
+  sdl_link_dependency(openharmonycore LIBS libace_napi.z.so libace_ndk.z.so deviceinfo_ndk.z rawfile.z hilog_ndk.z ohcommonevent)
+
+  sdl_glob_sources(
+    "${SDL3_SOURCE_DIR}/src/main/openharmony/*.c"
+    "${SDL3_SOURCE_DIR}/src/main/openharmony/*.h"
+  )
+  set(HAVE_SDL_MAIN_CALLBACKS TRUE)
+
+  sdl_glob_sources(
+    "${SDL3_SOURCE_DIR}/src/misc/openharmony/*.c"
+    "${SDL3_SOURCE_DIR}/src/misc/openharmony/*.h"
+  )
+  set(HAVE_SDL_MISC TRUE)
+
+  if(SDL_AUDIO)
+    set(SDL_AUDIO_DRIVER_OHAUDIO 1)
+    sdl_glob_sources(
+      "${SDL3_SOURCE_DIR}/src/audio/ohaudio/*.c"
+      "${SDL3_SOURCE_DIR}/src/audio/ohaudio/*.h"
+    )
+
+    set(HAVE_SDL_AUDIO TRUE)
+  endif()
+
+  set(SDL_FILESYSTEM_OPENHARMONY 1)
+  sdl_glob_sources(
+    "${SDL3_SOURCE_DIR}/src/filesystem/openharmony/*.c"
+    "${SDL3_SOURCE_DIR}/src/filesystem/openharmony/*.h"
+  )
+  sdl_link_dependency(openharmonyfs LIBS ability_runtime)
+  set(HAVE_SDL_FILESYSTEM TRUE)
+
+  set(SDL_FSOPS_POSIX 1)
+  sdl_sources("${SDL3_SOURCE_DIR}/src/filesystem/posix/SDL_sysfsops.c")
+  set(HAVE_SDL_FSOPS TRUE)
+
+if (False)   # !!! FIXME
+  if(SDL_HAPTIC)
+    set(SDL_HAPTIC_OPENHARMONY 1)
+    sdl_glob_sources(
+      "${SDL3_SOURCE_DIR}/src/haptic/openharmony/*.c"
+      "${SDL3_SOURCE_DIR}/src/haptic/openharmony/*.h"
+    )
+    set(HAVE_SDL_HAPTIC TRUE)
+  endif()
+
+  # !!! FIXME: any chance HIDAPI would work here?
+  CheckHIDAPI()
+
+  if(SDL_JOYSTICK)
+    set(SDL_JOYSTICK_OPENHARMONY 1)
+    sdl_glob_sources(
+      "${SDL3_SOURCE_DIR}/src/joystick/openharmony/*.c"
+      "${SDL3_SOURCE_DIR}/src/joystick/openharmony/*.h"
+    )
+    set(HAVE_SDL_JOYSTICK TRUE)
+  endif()
+endif()
+
+  set(SDL_LOADSO_DLOPEN 1)
+  sdl_glob_sources(
+    "${SDL3_SOURCE_DIR}/src/loadso/dlopen/*.c"
+    "${SDL3_SOURCE_DIR}/src/loadso/dlopen/*.h"
+  )
+  set(HAVE_SDL_LOADSO TRUE)
+
+  if(SDL_POWER)
+    set(SDL_POWER_OPENHARMONY 1)
+    sdl_glob_sources(
+      "${SDL3_SOURCE_DIR}/src/power/openharmony/*.c"
+      "${SDL3_SOURCE_DIR}/src/power/openharmony/*.h"
+    )
+    sdl_link_dependency(openharmonypower LIBS ohbattery_info)
+    set(HAVE_SDL_POWER TRUE)
+  endif()
+
+  sdl_glob_sources(
+    "${SDL3_SOURCE_DIR}/src/locale/openharmony/*.c"
+    "${SDL3_SOURCE_DIR}/src/locale/openharmony/*.h"
+  )
+  set(HAVE_SDL_LOCALE TRUE)
+
+  set(SDL_TIME_UNIX 1)
+  sdl_glob_sources(
+    "${SDL3_SOURCE_DIR}/src/time/unix/*.c"
+    "${SDL3_SOURCE_DIR}/src/time/unix/*.h"
+  )
+  set(HAVE_SDL_TIME TRUE)
+
+  set(SDL_TIMER_UNIX 1)
+  sdl_glob_sources(
+    "${SDL3_SOURCE_DIR}/src/timer/unix/*.c"
+    "${SDL3_SOURCE_DIR}/src/timer/unix/*.h"
+  )
+  set(HAVE_SDL_TIMERS TRUE)
+
+if(False)
+  if(SDL_SENSOR)
+    set(SDL_SENSOR_OPENHARMONY 1)
+    set(HAVE_SDL_SENSORS TRUE)
+    sdl_glob_sources(
+      "${SDL3_SOURCE_DIR}/src/sensor/openharmony/*.c"
+      "${SDL3_SOURCE_DIR}/src/sensor/openharmony/*.h"
+    )
+  endif()
+endif()
+
+  if(SDL_CAMERA)
+    set(SDL_CAMERA_DRIVER_OPENHARMONY 1)
+    set(HAVE_CAMERA TRUE)
+    sdl_glob_sources(
+      "${SDL3_SOURCE_DIR}/src/camera/openharmony/*.c"
+      "${SDL3_SOURCE_DIR}/src/camera/openharmony/*.h"
+    )
+    sdl_link_dependency(openharmonycamera LIBS ohcamera ohimage image_receiver native_image native_buffer)
+  endif()
+
+  if(SDL_VIDEO)
+    set(SDL_VIDEO_DRIVER_OPENHARMONY 1)
+    sdl_glob_sources(
+      "${SDL3_SOURCE_DIR}/src/video/openharmony/*.c"
+      "${SDL3_SOURCE_DIR}/src/video/openharmony/*.h"
+    )
+    set(HAVE_SDL_VIDEO TRUE)
+    sdl_link_dependency(openharmonyvideo LIBS native_display_manager pasteboard udmf)
+
+    # Core stuff
+    # find_library(ANDROID_DL_LIBRARY dl)
+    # FIXME failing dlopen https://github.com/android-ndk/ndk/issues/929
+# !!! FIXME
+#    sdl_link_dependency(android_video LIBS dl log android)
+    sdl_compile_definitions(PRIVATE "GL_GLEXT_PROTOTYPES")
+
+    #enable gles
+    if(SDL_OPENGLES)
+      set(SDL_VIDEO_OPENGL_EGL 1)
+      set(HAVE_OPENGLES TRUE)
+      set(SDL_VIDEO_OPENGL_ES2 1)
+      set(SDL_VIDEO_RENDER_OGL_ES2 1)
+      #sdl_link_dependency(opengles LIBS GLESv3)
+    endif()
+
+    if(SDL_VULKAN)
+      set(SDL_VIDEO_VULKAN 1)
+      set(HAVE_VULKAN TRUE)
+      if(SDL_RENDER_VULKAN)
+        set(SDL_VIDEO_RENDER_VULKAN 1)
+        set(HAVE_RENDER_VULKAN TRUE)
+      endif()
+    endif()
+  endif()
+
+  CheckPTHREAD()
+
+  if(SDL_CLOCK_GETTIME)
+    set(HAVE_CLOCK_GETTIME 1)
   endif()
 
 elseif(EMSCRIPTEN)
@@ -1834,17 +2011,32 @@ elseif(UNIX AND NOT (APPLE OR RISCOS OR HAIKU OR CYGWIN))
 
   set(SDL_DISABLE_DLOPEN_NOTES TRUE)
   if(SDL_DLOPEN_NOTES)
-    set(CHECK_ELF_DLNOTES_SRC [==[
-    #ifndef __ELF__
-      ELF DL notes is only supported on ELF platforms
-    #endif
-    __attribute__ ((used,aligned(4),section(".note.dlopen"))) static const struct {
-      struct { int a; int b; int c; } hdr; char name[4]; __attribute__((aligned(4))) char json[24];
-    } dlnote = { { 4, 0x407c0c0aU, 16 }, "FDO", "[\\"a\\":{\\"a\\":\\"1\\",\\"b\\":\\"2\\"}]" };
-    int main(int argc, char *argv[]) {
-      return argc + dlnote.hdr.a;
-    }
-    ]==])
+    if(POLICY CMP0219)
+      set(CHECK_ELF_DLNOTES_SRC [==[
+        #ifndef __ELF__
+          ELF DL notes is only supported on ELF platforms
+        #endif
+        __attribute__ ((used,aligned(4),section(".note.dlopen"))) static const struct {
+          struct { int a; int b; int c; } hdr; char name[4]; __attribute__((aligned(4))) char json[24];
+        } dlnote = { { 4, 0x407c0c0aU, 16 }, "FDO", "[\"a\":{\"a\":\"1\",\"b\":\"2\"}]" };
+        int main(int argc, char *argv[]) {
+          return argc + dlnote.hdr.a;
+        }
+      ]==])
+    else()
+      # FIXME: drop this once minimum CMake version is >= 4.4
+      set(CHECK_ELF_DLNOTES_SRC [==[
+        #ifndef __ELF__
+          ELF DL notes is only supported on ELF platforms
+        #endif
+        __attribute__ ((used,aligned(4),section(".note.dlopen"))) static const struct {
+          struct { int a; int b; int c; } hdr; char name[4]; __attribute__((aligned(4))) char json[24];
+        } dlnote = { { 4, 0x407c0c0aU, 16 }, "FDO", "[\\"a\\":{\\"a\\":\\"1\\",\\"b\\":\\"2\\"}]" };
+        int main(int argc, char *argv[]) {
+          return argc + dlnote.hdr.a;
+        }
+      ]==])
+    endif()
     check_c_source_compiles("${CHECK_ELF_DLNOTES_SRC}" COMPILER_SUPPORTS_ELFNOTES)
     if(COMPILER_SUPPORTS_ELFNOTES)
       set(SDL_DISABLE_DLOPEN_NOTES FALSE)
@@ -2055,6 +2247,13 @@ elseif(UNIX AND NOT (APPLE OR RISCOS OR HAIKU OR CYGWIN))
         "${SDL3_SOURCE_DIR}/src/core/linux/SDL_progressbar.c"
         "${SDL3_SOURCE_DIR}/src/core/linux/SDL_progressbar.h"
       )
+
+      if(SDL_NOTIFICATION)
+        sdl_sources(
+          "${SDL3_SOURCE_DIR}/src/notification/unix/SDL_dbusnotification.c"
+        )
+        set(HAVE_SDL_NOTIFICATION TRUE)
+      endif()
     endif()
 
     if(SDL_USE_IME)
@@ -2115,7 +2314,10 @@ elseif(UNIX AND NOT (APPLE OR RISCOS OR HAIKU OR CYGWIN))
     sdl_sources(
       "${SDL3_SOURCE_DIR}/src/core/linux/SDL_evdev_capabilities.c"
       "${SDL3_SOURCE_DIR}/src/core/linux/SDL_evdev_capabilities.h"
+      "${SDL3_SOURCE_DIR}/src/core/linux/SDL_sysfs.c"
+      "${SDL3_SOURCE_DIR}/src/core/linux/SDL_sysfs.h"
       "${SDL3_SOURCE_DIR}/src/core/linux/SDL_threadprio.c"
+      "${SDL3_SOURCE_DIR}/src/core/linux/SDL_ubuntu_touch.c"
     )
 
     # src/core/unix/*.c is included in a generic if(UNIX) section, elsewhere.
@@ -2262,11 +2464,32 @@ elseif(WINDOWS OR CYGWIN)
       string(APPEND CMAKE_REQUIRED_FLAGS " /I\"$ENV{DXSDK_DIR}\\Include\"")
     endif()
 
-    check_include_file(d3d9.h HAVE_D3D9_H)
-    check_include_file(d3d11_1.h HAVE_D3D11_H)
-    check_include_file(ddraw.h HAVE_DDRAW_H)
-    check_include_file(dsound.h HAVE_DSOUND_H)
-    check_include_file(dinput.h HAVE_DINPUT_H)
+    # d3d9.h may need windows.h, but does not include it itself.
+    check_c_source_compiles("
+      #include <windows.h>
+      #include <d3d9.h>
+      int main(int argc, char **argv) { (void)argc; (void)argv; return 0; }" HAVE_D3D9_H
+    )
+    check_c_source_compiles("
+      #include <d3d11_1.h>
+      int main(int argc, char **argv) { (void)argc; (void)argv; return 0; }" HAVE_D3D11_H
+    )
+    # ddraw.h, dsound.h, and dinput.h may need windows.h, but does not include it itself.
+    check_c_source_compiles("
+      #include <windows.h>
+      #include <ddraw.h>
+      int main(int argc, char **argv) { (void)argc; (void)argv; return 0; }" HAVE_DDRAW_H
+    )
+    check_c_source_compiles("
+      #include <windows.h>
+      #include <dsound.h>
+      int main(int argc, char **argv) { (void)argc; (void)argv; return 0; }" HAVE_DSOUND_H
+    )
+    check_c_source_compiles("
+      #include <windows.h>
+      #include <dinput.h>
+      int main(int argc, char **argv) { (void)argc; (void)argv; return 0; }" HAVE_DINPUT_H
+    )
     if(SDL_CPU_ARM32)  # !!! FIXME: this should probably check if we're !(x86 or x86-64) instead of arm.
       set(HAVE_DINPUT_H 0)
     endif()
@@ -2295,19 +2518,19 @@ elseif(WINDOWS OR CYGWIN)
     )
   endif()
 
-  # headers needed elsewhere
-  check_c_source_compiles("
-    #define COBJMACROS
-    #include <windows.gaming.input.h>
-    static __x_ABI_CWindows_CGaming_CInput_CIGamepadStatics2 *s2;
-    int main(int argc, char **argv) { return 0; }" HAVE_WINDOWS_GAMING_INPUT_H
-  )
-  check_cxx_source_compiles("
-    #include <stdbool.h>
-    #define COBJMACROS
-    #include <gameinput.h>
-    int main(int argc, char **argv) { return 0; }" HAVE_GAMEINPUT_H
-  )
+  set(HAVE_GAMEINPUT_H 1)
+  sdl_include_directories(PRIVATE SYSTEM "${SDL3_SOURCE_DIR}/src/core/windows/gameinput")
+  sdl_sources("${SDL3_SOURCE_DIR}/src/core/windows/gameinput/gameinput.cpp")
+  if(USE_GCC OR USE_CLANG)
+    # Avoid a dependency on libstdc++-X.dll for `__gxx_personality_seh0`
+    check_c_compiler_flag(-fno-exceptions COMPILER_SUPPORTS_FNO_EXCEPTIONS)
+    if(COMPILER_SUPPORTS_FNO_EXCEPTIONS)
+      set_property(SOURCE "${SDL3_SOURCE_DIR}/src/core/windows/gameinput/gameinput.cpp" APPEND PROPERTY COMPILE_OPTIONS "-fno-exceptions")
+      set_property(SOURCE "${SDL3_SOURCE_DIR}/src/core/windows/gameinput/gameinput.cpp" PROPERTY SKIP_PRECOMPILE_HEADERS 1)
+    endif()
+  endif()
+  set(SDL_GAMEINPUT_DYNAMIC 0)
+
   check_include_file(dxgi1_5.h HAVE_DXGI1_5_H)
   check_include_file(dxgi1_6.h HAVE_DXGI1_6_H)
   check_include_file(tpcshrd.h HAVE_TPCSHRD_H)
@@ -2316,6 +2539,7 @@ elseif(WINDOWS OR CYGWIN)
   check_include_file(audioclient.h HAVE_AUDIOCLIENT_H)
   check_include_file(sensorsapi.h HAVE_SENSORSAPI_H)
   check_include_file(shellscalingapi.h HAVE_SHELLSCALINGAPI_H)
+  check_include_file(Windows.ui.notifications.h HAVE_WINDOWS_UI_NOTIFICATIONS_H)
   check_c_source_compiles("
     #include <windows.h>
     #include <mfapi.h>
@@ -2425,7 +2649,7 @@ elseif(WINDOWS OR CYGWIN)
   set(HAVE_SDL_STORAGE 1)
 
   # Libraries for Win32 native and MinGW
-  sdl_link_dependency(base LIBS kernel32 user32 gdi32 winmm imm32 ole32 oleaut32 version uuid advapi32 setupapi shell32 hid)
+  sdl_link_dependency(base LIBS kernel32 user32 gdi32 winmm imm32 ole32 oleaut32 version uuid advapi32 setupapi shell32 hid mincore)
 
   set(SDL_TIME_WINDOWS 1)
   sdl_glob_sources("${SDL3_SOURCE_DIR}/src/time/windows/*.c")
@@ -2474,6 +2698,11 @@ elseif(WINDOWS OR CYGWIN)
     set(HAVE_SDL_TRAY TRUE)
   endif()
 
+  if(SDL_NOTIFICATION AND HAVE_WINDOWS_UI_NOTIFICATIONS_H)
+    sdl_glob_sources("${SDL3_SOURCE_DIR}/src/notification/windows/*.c")
+    set(HAVE_SDL_NOTIFICATION TRUE)
+  endif()
+
   if(SDL_HIDAPI)
     CheckHIDAPI()
   endif()
@@ -2484,7 +2713,6 @@ elseif(WINDOWS OR CYGWIN)
       "${SDL3_SOURCE_DIR}/src/joystick/windows/*.h"
     )
 
-    set(SDL_JOYSTICK_RAWINPUT 1)
     if(HAVE_DINPUT_H)
       set(SDL_JOYSTICK_DINPUT 1)
       sdl_link_dependency(joystick LIBS dinput8)
@@ -2492,9 +2720,6 @@ elseif(WINDOWS OR CYGWIN)
     if(HAVE_XINPUT_H)
       set(SDL_JOYSTICK_XINPUT 1)
       set(HAVE_XINPUT TRUE)
-    endif()
-    if(HAVE_WINDOWS_GAMING_INPUT_H)
-      set(SDL_JOYSTICK_WGI 1)
     endif()
     if(HAVE_GAMEINPUT_H)
       sdl_glob_sources("${SDL3_SOURCE_DIR}/src/joystick/gdk/*.cpp")
@@ -2532,6 +2757,13 @@ elseif(APPLE)
   # TODO: rework this all for proper macOS, iOS and Darwin support
 
   # !!! FIXME: all the `if(IOS OR TVOS OR VISIONOS)` checks should get merged into one variable, so we're ready for the next platform (or just WatchOS).
+
+  if(MACOS)
+    sdl_glob_sources(
+      "${SDL3_SOURCE_DIR}/src/core/macos/*.c"
+      "${SDL3_SOURCE_DIR}/src/core/macos/*.h"
+    )
+  endif()
 
   # We always need these libs on macOS at the moment.
   # !!! FIXME: we need Carbon for some very old API calls in
@@ -2600,7 +2832,6 @@ elseif(APPLE)
         "${SDL3_SOURCE_DIR}/src/joystick/darwin/*.c"
         "${SDL3_SOURCE_DIR}/src/joystick/darwin/*.h"
       )
-      set_property(SOURCE ${MFI_JOYSTICK_SOURCES} APPEND_STRING PROPERTY COMPILE_FLAGS " -fobjc-weak")
       check_objc_source_compiles("
           #include <AvailabilityMacros.h>
           #include <TargetConditionals.h>
@@ -2650,6 +2881,11 @@ elseif(APPLE)
     set(HAVE_SDL_HAPTIC TRUE)
   endif()
 
+  if(SDL_NOTIFICATION)
+    set(SDL_FRAMEWORK_SECURITY 1)
+    set(SDL_FRAMEWORK_USERNOTIFICATIONS 1)
+  endif()
+
   if(SDL_POWER)
     if (IOS OR TVOS OR VISIONOS OR WATCHOS)
       sdl_glob_sources(
@@ -2679,6 +2915,10 @@ elseif(APPLE)
   set(SDL_FILESYSTEM_COCOA 1)
   sdl_glob_sources("${SDL3_SOURCE_DIR}/src/filesystem/cocoa/*.m")
   set(HAVE_SDL_FILESYSTEM TRUE)
+
+  set(SDL_NOTIFICATION_COCOA 1)
+  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/notification/cocoa/*.m")
+  set(HAVE_SDL_NOTIFICATION TRUE)
 
   # TODO: SDL_STORAGE_ICLOUD
   set(SDL_STORAGE_GENERIC 1)
@@ -2736,6 +2976,7 @@ elseif(APPLE)
       if(IOS OR TVOS OR VISIONOS OR WATCHOS)
         set(SDL_FRAMEWORK_OPENGLES 1)
         set(SDL_VIDEO_OPENGL_ES 1)
+        set(SDL_VIDEO_RENDER_OGL_ES 1)
       else()
         set(SDL_VIDEO_OPENGL_EGL 1)
       endif()
@@ -2841,11 +3082,18 @@ elseif(APPLE)
   if(SDL_FRAMEWORK_METAL)
     sdl_link_dependency(metal LIBS "$<LINK_LIBRARY:FRAMEWORK,Metal>" PKG_CONFIG_LINK_OPTIONS "-Wl,-framework,Metal")
   endif()
+  if(SDL_FRAMEWORK_USERNOTIFICATIONS)
+    find_library(USERNOTIFICATIONS UserNotifications)
+    sdl_link_dependency(usernotifications LIBS "$<LINK_LIBRARY:FRAMEWORK,UserNotifications>" PKG_CONFIG_LINK_OPTIONS "-Wl,-framework,UserNotifications")
+  endif()
   if(SDL_FRAMEWORK_OPENGLES)
     sdl_link_dependency(opengles LIBS "$<LINK_LIBRARY:FRAMEWORK,OpenGLES>" PKG_CONFIG_LINK_OPTIONS "-Wl,-framework,OpenGLES")
   endif()
   if(SDL_FRAMEWORK_QUARTZCORE)
     sdl_link_dependency(quartz_core LIBS "$<LINK_LIBRARY:FRAMEWORK,QuartzCore>" PKG_CONFIG_LINK_OPTIONS "-Wl,-framework,QuartzCore")
+  endif()
+  if(SDL_FRAMEWORK_SECURITY)
+    sdl_link_dependency(quartz_core LIBS "$<LINK_LIBRARY:FRAMEWORK,Security>" PKG_CONFIG_LINK_OPTIONS "-Wl,-framework,Security")
   endif()
   if(SDL_FRAMEWORK_UIKIT)
     sdl_link_dependency(ui_kit LIBS "$<LINK_LIBRARY:FRAMEWORK,UIKit>" PKG_CONFIG_LINK_OPTIONS "-Wl,-framework,UIKit")
@@ -3268,10 +3516,6 @@ elseif(PS2)
   )
   set(HAVE_SDL_THREADS TRUE)
 
-  set(SDL_TIME_PS2 1)
-  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/time/ps2/*.c")
-  set(HAVE_SDL_TIME TRUE)
-
   set(SDL_TIMER_PS2 1)
   sdl_glob_sources("${SDL3_SOURCE_DIR}/src/timer/ps2/*.c")
   set(HAVE_SDL_TIMERS TRUE)
@@ -3484,14 +3728,6 @@ elseif(NGAGE)
   )
   set(HAVE_SDL_TIMERS TRUE)
 
-  set_option(SDL_LEAN_AND_MEAN "Enable lean and mean" ON)
-  if(SDL_LEAN_AND_MEAN)
-    sdl_compile_definitions(
-      PRIVATE
-      SDL_LEAN_AND_MEAN
-    )
-  endif()
-
   sdl_link_dependency(ngage
     LINK_OPTIONS "SHELL:-s MAIN_COMPAT=0"
     PKG_CONFIG_LINK_OPTIONS "-s;MAIN_COMPAT=0"
@@ -3521,7 +3757,10 @@ if (SDL_DIALOG)
   if(ANDROID)
     sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/android/SDL_androiddialog.c)
     set(HAVE_SDL_DIALOG TRUE)
-  elseif(UNIX AND NOT APPLE AND NOT RISCOS AND NOT HAIKU)
+  elseif(EMSCRIPTEN)
+    sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/emscripten/SDL_emscriptendialog.c)
+    set(HAVE_SDL_DIALOG TRUE)
+  elseif(UNIX AND NOT (APPLE OR RISCOS OR HAIKU OR CYGWIN))
     sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/unix/SDL_unixdialog.c)
     sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/unix/SDL_portaldialog.c)
     sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/unix/SDL_portaldialog.h)
@@ -3531,7 +3770,7 @@ if (SDL_DIALOG)
   elseif(HAIKU)
     sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/haiku/SDL_haikudialog.cc)
     set(HAVE_SDL_DIALOG TRUE)
-  elseif(WINDOWS)
+  elseif(WINDOWS OR CYGWIN)
     sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/windows/SDL_windowsdialog.c)
     set(HAVE_SDL_DIALOG TRUE)
   elseif(MACOS)
@@ -3539,7 +3778,7 @@ if (SDL_DIALOG)
     set(HAVE_SDL_DIALOG TRUE)
   endif()
 endif()
-if(UNIX AND NOT APPLE AND NOT RISCOS AND NOT HAIKU)
+if(UNIX AND NOT (APPLE OR RISCOS OR HAIKU OR CYGWIN))
   sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/unix/SDL_zenitymessagebox.h)
   sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/unix/SDL_zenitymessagebox.c)
 endif()
@@ -3753,6 +3992,12 @@ if(NOT HAVE_CAMERA)
     "${SDL3_SOURCE_DIR}/src/camera/dummy/*.h"
   )
 endif()
+if(NOT HAVE_SDL_NOTIFICATION)
+  sdl_glob_sources(
+     "${SDL3_SOURCE_DIR}/src/notification/dummy/*.c"
+     "${SDL3_SOURCE_DIR}/src/notification/dummy/*.h"
+  )
+endif()
 
 # We always need to have threads and timers around
 if(NOT HAVE_SDL_THREADS)
@@ -3767,6 +4012,12 @@ if(NOT HAVE_SDL_THREADS)
     message(FATAL_ERROR "Threads are needed by many SDL subsystems and may not be disabled")
   endif()
 endif()
+
+if(NOT HAVE_SDL_TIME)
+  set(SDL_TIME_DUMMY 1)
+  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/time/dummy/*.c")
+endif()
+
 if(NOT HAVE_SDL_TIMERS)
   message(FATAL_ERROR "Timers are needed by many SDL subsystems and may not be disabled")
 endif()

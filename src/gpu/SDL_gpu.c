@@ -749,6 +749,10 @@ SDL_GPUDevice *SDL_CreateGPUDeviceWithProperties(SDL_PropertiesID props)
             if (!SDL_GetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_ANISOTROPY_BOOLEAN, true)) {
                 result->validate_feature_anisotropy_disabled = true;
             }
+            if (result->debug_mode) {
+                result->max_viewport_width = SDL_MAX_UINT32;
+                result->max_viewport_height = SDL_MAX_UINT32;
+            }
         }
     }
     return result;
@@ -1287,11 +1291,8 @@ SDL_GPUTexture *SDL_CreateGPUTexture(
             failed = true;
         }
         if (createinfo->sample_count > SDL_GPU_SAMPLECOUNT_1 &&
-            (createinfo->usage & (SDL_GPU_TEXTUREUSAGE_SAMPLER |
-                                  SDL_GPU_TEXTUREUSAGE_GRAPHICS_STORAGE_READ |
-                                  SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ |
-                                  SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE))) {
-            SDL_assert_release(!"For multisample textures: usage cannot contain SAMPLER or STORAGE flags");
+            (createinfo->usage & SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE)) {
+            SDL_assert_release(!"For multisample textures: usage cannot contain COMPUTE_STORAGE_WRITE flag");
             failed = true;
         }
         if (IsDepthFormat(createinfo->format) && (createinfo->usage & ~(SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER))) {
@@ -1430,6 +1431,13 @@ SDL_GPUTransferBuffer *SDL_CreateGPUTransferBuffer(
         return NULL;
     }
 
+    if (device->debug_mode) {
+        if (createinfo->usage != SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD &&
+            createinfo->usage != SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD) {
+            SDL_assert_release(!"Invalid transfer buffer usage!");
+        }
+    }
+
     const char *debugName = SDL_GetStringProperty(createinfo->props, SDL_PROP_GPU_TRANSFERBUFFER_CREATE_NAME_STRING, NULL);
 
     return device->CreateTransferBuffer(
@@ -1549,11 +1557,11 @@ void SDL_ReleaseGPUTexture(
     SDL_GPUDevice *device,
     SDL_GPUTexture *texture)
 {
-    CHECK_DEVICE_MAGIC(device, );
-
-    CHECK_PARAM(texture == NULL) {
+    if(texture == NULL) {
         return;
     }
+
+    CHECK_DEVICE_MAGIC(device, );
 
     device->ReleaseTexture(
         device->driverData,
@@ -1564,11 +1572,11 @@ void SDL_ReleaseGPUSampler(
     SDL_GPUDevice *device,
     SDL_GPUSampler *sampler)
 {
-    CHECK_DEVICE_MAGIC(device, );
-
-    CHECK_PARAM(sampler == NULL) {
+    if(sampler == NULL) {
         return;
     }
+
+    CHECK_DEVICE_MAGIC(device, );
 
     device->ReleaseSampler(
         device->driverData,
@@ -1579,11 +1587,11 @@ void SDL_ReleaseGPUBuffer(
     SDL_GPUDevice *device,
     SDL_GPUBuffer *buffer)
 {
-    CHECK_DEVICE_MAGIC(device, );
-
-    CHECK_PARAM(buffer == NULL) {
+    if(buffer == NULL) {
         return;
     }
+
+    CHECK_DEVICE_MAGIC(device, );
 
     device->ReleaseBuffer(
         device->driverData,
@@ -1594,11 +1602,11 @@ void SDL_ReleaseGPUTransferBuffer(
     SDL_GPUDevice *device,
     SDL_GPUTransferBuffer *transfer_buffer)
 {
-    CHECK_DEVICE_MAGIC(device, );
-
-    CHECK_PARAM(transfer_buffer == NULL) {
+    if(transfer_buffer == NULL) {
         return;
     }
+
+    CHECK_DEVICE_MAGIC(device, );
 
     device->ReleaseTransferBuffer(
         device->driverData,
@@ -1609,11 +1617,11 @@ void SDL_ReleaseGPUShader(
     SDL_GPUDevice *device,
     SDL_GPUShader *shader)
 {
-    CHECK_DEVICE_MAGIC(device, );
-
-    CHECK_PARAM(shader == NULL) {
+    if(shader == NULL) {
         return;
     }
+
+    CHECK_DEVICE_MAGIC(device, );
 
     device->ReleaseShader(
         device->driverData,
@@ -1624,11 +1632,11 @@ void SDL_ReleaseGPUComputePipeline(
     SDL_GPUDevice *device,
     SDL_GPUComputePipeline *compute_pipeline)
 {
-    CHECK_DEVICE_MAGIC(device, );
-
-    CHECK_PARAM(compute_pipeline == NULL) {
+    if(compute_pipeline == NULL) {
         return;
     }
+
+    CHECK_DEVICE_MAGIC(device, );
 
     device->ReleaseComputePipeline(
         device->driverData,
@@ -1639,11 +1647,11 @@ void SDL_ReleaseGPUGraphicsPipeline(
     SDL_GPUDevice *device,
     SDL_GPUGraphicsPipeline *graphics_pipeline)
 {
-    CHECK_DEVICE_MAGIC(device, );
-
-    CHECK_PARAM(graphics_pipeline == NULL) {
+    if(graphics_pipeline == NULL) {
         return;
     }
+
+    CHECK_DEVICE_MAGIC(device, );
 
     device->ReleaseGraphicsPipeline(
         device->driverData,
@@ -1818,8 +1826,14 @@ SDL_GPURenderPass *SDL_BeginGPURenderPass(
         CHECK_COMMAND_BUFFER_RETURN_NULL
         CHECK_ANY_PASS_IN_PROGRESS("Cannot begin render pass during another pass!", NULL);
 
+        COMMAND_BUFFER_DEVICE->max_viewport_width = SDL_MAX_UINT32;
+        COMMAND_BUFFER_DEVICE->max_viewport_height = SDL_MAX_UINT32;
+
         for (Uint32 i = 0; i < num_color_targets; i += 1) {
             TextureCommonHeader *textureHeader = (TextureCommonHeader *)color_target_infos[i].texture;
+
+            COMMAND_BUFFER_DEVICE->max_viewport_width = SDL_min(COMMAND_BUFFER_DEVICE->max_viewport_width, textureHeader->info.width);
+            COMMAND_BUFFER_DEVICE->max_viewport_height = SDL_min(COMMAND_BUFFER_DEVICE->max_viewport_height, textureHeader->info.height);
 
             if (color_target_infos[i].cycle && color_target_infos[i].load_op == SDL_GPU_LOADOP_LOAD) {
                 SDL_assert_release(!"Cannot cycle color target when load op is LOAD!");
@@ -1868,6 +1882,10 @@ SDL_GPURenderPass *SDL_BeginGPURenderPass(
 
         if (depth_stencil_target_info != NULL) {
             TextureCommonHeader *textureHeader = (TextureCommonHeader *)depth_stencil_target_info->texture;
+
+            COMMAND_BUFFER_DEVICE->max_viewport_width = SDL_min(COMMAND_BUFFER_DEVICE->max_viewport_width, textureHeader->info.width);
+            COMMAND_BUFFER_DEVICE->max_viewport_height = SDL_min(COMMAND_BUFFER_DEVICE->max_viewport_height, textureHeader->info.height);
+
             if (!(textureHeader->info.usage & SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)) {
                 SDL_assert_release(!"Depth target must have been created with the DEPTH_STENCIL_TARGET usage flag!");
                 return NULL;
@@ -1955,6 +1973,12 @@ void SDL_SetGPUViewport(
 
     if (RENDERPASS_DEVICE->debug_mode) {
         CHECK_RENDERPASS
+
+        if (((viewport->x + viewport->w) > RENDERPASS_DEVICE->max_viewport_width) ||
+            ((viewport->y + viewport->h) > RENDERPASS_DEVICE->max_viewport_height)) {
+            SDL_assert_release(!"Viewport size exceeds current render target dimensions");
+            return;
+        }
     }
 
     RENDERPASS_DEVICE->SetViewport(
@@ -1977,6 +2001,12 @@ void SDL_SetGPUScissor(
 
     if (RENDERPASS_DEVICE->debug_mode) {
         CHECK_RENDERPASS
+
+        if (((Uint32) (scissor->x + scissor->w) > RENDERPASS_DEVICE->max_viewport_width) ||
+            ((Uint32) (scissor->y + scissor->h) > RENDERPASS_DEVICE->max_viewport_height)) {
+            SDL_assert_release(!"Scissor rectangle size exceeds current render target dimensions");
+            return;
+        }
     }
 
     RENDERPASS_DEVICE->SetScissor(
@@ -2032,6 +2062,10 @@ void SDL_BindGPUVertexBuffers(
     }
     if (bindings == NULL && num_bindings > 0) {
         SDL_InvalidParamError("bindings");
+        return;
+    }
+    CHECK_PARAM(first_binding + num_bindings > MAX_VERTEX_BUFFERS) {
+        SDL_SetError("first_binding + num_bindings exceeds MAX_VERTEX_BUFFERS");
         return;
     }
 
@@ -2095,11 +2129,23 @@ void SDL_BindGPUVertexSamplers(
         if (!((CommandBufferCommonHeader *)RENDERPASS_COMMAND_BUFFER)->ignore_render_pass_texture_validation)
         {
             CHECK_SAMPLER_TEXTURES
+
+            for (Uint32 i = 0; i < num_bindings; i += 1) {
+                TextureCommonHeader *texture_header = (TextureCommonHeader *)texture_sampler_bindings[i].texture;
+                if (texture_header->info.sample_count > SDL_GPU_SAMPLECOUNT_1)
+                {
+                    SDL_assert_release(!"Multisample textures cannot be bound as samplers!");
+                }
+            }
         }
 
         for (Uint32 i = 0; i < num_bindings; i += 1) {
             ((RenderPass *)render_pass)->vertex_sampler_bound[first_slot + i] = true;
         }
+    }
+
+    if (num_bindings == 0) {
+        return;
     }
 
     RENDERPASS_DEVICE->BindVertexSamplers(
@@ -2205,8 +2251,20 @@ void SDL_BindGPUFragmentSamplers(
         }
 
         for (Uint32 i = 0; i < num_bindings; i += 1) {
+            TextureCommonHeader *texture_header = (TextureCommonHeader *)texture_sampler_bindings[i].texture;
+            if (texture_header->info.sample_count > SDL_GPU_SAMPLECOUNT_1)
+            {
+                SDL_assert_release(!"Multisample textures cannot be bound as samplers!");
+            }
+        }
+
+        for (Uint32 i = 0; i < num_bindings; i += 1) {
             ((RenderPass *)render_pass)->fragment_sampler_bound[first_slot + i] = true;
         }
+    }
+
+    if (num_bindings == 0) {
+        return;
     }
 
     RENDERPASS_DEVICE->BindFragmentSamplers(
@@ -2560,6 +2618,14 @@ void SDL_BindGPUComputeSamplers(
 
     if (COMPUTEPASS_DEVICE->debug_mode) {
         CHECK_COMPUTEPASS
+
+        for (Uint32 i = 0; i < num_bindings; i += 1) {
+            TextureCommonHeader *texture_header = (TextureCommonHeader *)texture_sampler_bindings[i].texture;
+            if (texture_header->info.sample_count > SDL_GPU_SAMPLECOUNT_1)
+            {
+                SDL_assert_release(!"Multisample textures cannot be bound as samplers!");
+            }
+        }
 
         for (Uint32 i = 0; i < num_bindings; i += 1) {
             ((ComputePass *)compute_pass)->sampler_bound[first_slot + i] = true;
@@ -3468,9 +3534,20 @@ bool SDL_WaitForGPUFences(
 {
     CHECK_DEVICE_MAGIC(device, false);
 
-    CHECK_PARAM(fences == NULL && num_fences > 0) {
+    if (!num_fences) {
+        return true;
+    }
+
+    CHECK_PARAM(fences == NULL) {
         SDL_InvalidParamError("fences");
         return false;
+    }
+
+    for (Uint32 i = 0; i < num_fences; ++i) {
+        CHECK_PARAM(fences[i] == NULL) {
+            SDL_InvalidParamError("fences");
+            return false;
+        }
     }
 
     return device->WaitForFences(
@@ -3500,11 +3577,11 @@ void SDL_ReleaseGPUFence(
     SDL_GPUDevice *device,
     SDL_GPUFence *fence)
 {
-    CHECK_DEVICE_MAGIC(device, );
-
-    CHECK_PARAM(fence == NULL) {
+    if(fence == NULL) {
         return;
     }
+
+    CHECK_DEVICE_MAGIC(device, );
 
     device->ReleaseFence(
         device->driverData,

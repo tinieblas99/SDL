@@ -58,6 +58,7 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x0085 ), k_eControllerType_PS3Controller, NULL },	// HORI Fighting Commander PS3
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x0086 ), k_eControllerType_PS3Controller, NULL },	// HORI Fighting Commander PC (Uses the Xbox 360 protocol, but has PS3 buttons)
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x0088 ), k_eControllerType_PS3Controller, NULL },	// HORI Fighting Stick mini 4
+	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x008b ), k_eControllerType_PS3Controller, NULL },	// HORI Real Arcade Pro 4
 	{ MAKE_CONTROLLER_ID( 0x0f30, 0x1100 ), k_eControllerType_PS3Controller, NULL },	// Qanba Q1 fight stick
 	{ MAKE_CONTROLLER_ID( 0x11ff, 0x3331 ), k_eControllerType_PS3Controller, NULL },	// SRXJ-PH2400
 	{ MAKE_CONTROLLER_ID( 0x12ba, 0x0100 ), k_eControllerType_PS3Controller, NULL },	// PS3 Guitar Hero Guitar
@@ -92,7 +93,7 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x20d6, 0x576d ), k_eControllerType_PS3Controller, NULL },	// Power A PS3
 	{ MAKE_CONTROLLER_ID( 0x20d6, 0xca6d ), k_eControllerType_PS3Controller, NULL },	// BDA Pro Ex
 	{ MAKE_CONTROLLER_ID( 0x2563, 0x0523 ), k_eControllerType_PS3Controller, NULL },	// Digiflip GP006
-	{ MAKE_CONTROLLER_ID( 0x2563, 0x0575 ), k_eControllerType_PS3Controller, "Retro-bit Controller" },	// SWITCH CO., LTD. Retro-bit Controller
+	{ MAKE_CONTROLLER_ID( 0x2563, 0x0575 ), k_eControllerType_PS3Controller, "Retro Controller" },	// SWITCH CO., LTD. Retro-bit, Retro Fighters Controllers
 	{ MAKE_CONTROLLER_ID( 0x25f0, 0x83c3 ), k_eControllerType_PS3Controller, NULL },	// gioteck vx2
 	{ MAKE_CONTROLLER_ID( 0x25f0, 0xc121 ), k_eControllerType_PS3Controller, NULL },	//
 	{ MAKE_CONTROLLER_ID( 0x2c22, 0x2003 ), k_eControllerType_PS3Controller, NULL },	// Qanba Drone
@@ -131,6 +132,7 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x008a ), k_eControllerType_PS4Controller, NULL },	// HORI Real Arcade Pro 4
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x009c ), k_eControllerType_PS4Controller, NULL },	// HORI TAC PRO mousething
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x00a0 ), k_eControllerType_PS4Controller, NULL },	// HORI TAC4 mousething
+	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x00c9 ), k_eControllerType_PS4Controller, NULL },	// Hori Taiko Controller DX
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x00ed ), k_eControllerType_XInputPS4Controller, NULL },	// Hori Fighting Stick mini 4 kai - becomes an Xbox 360 controller on PC
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x00ee ), k_eControllerType_PS4Controller, NULL },	// Hori mini wired https://www.playstation.com/en-us/explore/accessories/gaming-controllers/mini-wired-gamepad/
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x011c ), k_eControllerType_PS4Controller, NULL },	// Hori Fighting Stick α
@@ -179,11 +181,12 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0209 ), k_eControllerType_PS5Controller, NULL },	// Victrix Pro FS PS4/PS5 (PS5 mode)
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x0163 ), k_eControllerType_PS5Controller, NULL },	// HORI Fighting Commander OCTA
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x0184 ), k_eControllerType_PS5Controller, NULL },	// Hori Fighting Stick α
+	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x01b0 ), k_eControllerType_PS5Controller, NULL },	// Hori Taiko Controller DX
 	{ MAKE_CONTROLLER_ID( 0x1532, 0x100b ), k_eControllerType_PS5Controller, NULL },	// Razer Wolverine V2 Pro (Wired)
 	{ MAKE_CONTROLLER_ID( 0x1532, 0x100c ), k_eControllerType_PS5Controller, NULL },	// Razer Wolverine V2 Pro (Wireless)
 	{ MAKE_CONTROLLER_ID( 0x1532, 0x1012 ), k_eControllerType_PS5Controller, NULL },	// Razer Kitsune
-	{ MAKE_CONTROLLER_ID( 0x1532, 0x1024 ), k_eControllerType_PS5Controller, NULL },	// Razer Raiju V5 Pro (PS5 mode wired)
-	{ MAKE_CONTROLLER_ID( 0x1532, 0x1026 ), k_eControllerType_PS5Controller, NULL },	// Razer Raiju V5 Pro (PS5 mode with dongle)
+	{ MAKE_CONTROLLER_ID( 0x1532, 0x1024 ), k_eControllerType_PS5Controller, NULL },	// Razer Raiju V3 Pro (PS5 mode wired)
+	{ MAKE_CONTROLLER_ID( 0x1532, 0x1026 ), k_eControllerType_PS5Controller, NULL },	// Razer Raiju V3 Pro (PS5 mode with dongle)
 	{ MAKE_CONTROLLER_ID( 0x3285, 0x0d18 ), k_eControllerType_PS5Controller, NULL },	// NACON Revolution 5 Pro (PS5 mode with dongle)
 	{ MAKE_CONTROLLER_ID( 0x3285, 0x0d19 ), k_eControllerType_PS5Controller, NULL },	// NACON Revolution 5 Pro (PS5 mode wired)
 	{ MAKE_CONTROLLER_ID( 0x358a, 0x0104 ), k_eControllerType_PS5Controller, NULL },	// Backbone One PlayStation Edition for iOS
@@ -244,6 +247,7 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0301 ), k_eControllerType_XBox360Controller, "PDP Xbox 360 Controller" },	// PDP Gamepad for Xbox 360
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0313 ), k_eControllerType_XBox360Controller, "PDP Xbox 360 Afterglow" },	// PDP Afterglow Gamepad for Xbox 360
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0314 ), k_eControllerType_XBox360Controller, "PDP Xbox 360 Afterglow" },	// PDP Afterglow Gamepad for Xbox 360
+	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0338 ), k_eControllerType_XBox360Controller, "PDP Xbox 360 Afterglow" },	// PDP Afterglow Gamepad for Xbox 360
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0401 ), k_eControllerType_XBox360Controller, "PDP Xbox 360 Controller" },	// PDP Gamepad for Xbox 360
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0413 ), k_eControllerType_XBox360Controller, NULL },	// PDP Afterglow AX.1 (unlisted)
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0501 ), k_eControllerType_XBox360Controller, NULL },	// PDP Xbox 360 Controller (unlisted)
@@ -256,6 +260,7 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x008c ), k_eControllerType_XBox360Controller, NULL },	// Hori Real Arcade Pro 4
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x00db ), k_eControllerType_XBox360Controller, "HORI Slime Controller" },	// Hori Dragon Quest Slime Controller
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x011e ), k_eControllerType_XBox360Controller, NULL },	// Hori Fighting Stick α
+	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x01b1 ), k_eControllerType_XBox360Controller, NULL },	// Hori Taiko Controller DX
 	{ MAKE_CONTROLLER_ID( 0x1038, 0x1430 ), k_eControllerType_XBox360Controller, "SteelSeries Stratus Duo" },	// SteelSeries Stratus Duo
 	{ MAKE_CONTROLLER_ID( 0x1038, 0x1431 ), k_eControllerType_XBox360Controller, "SteelSeries Stratus Duo" },	// SteelSeries Stratus Duo
 	{ MAKE_CONTROLLER_ID( 0x1038, 0xb360 ), k_eControllerType_XBox360Controller, NULL },	// SteelSeries Nimbus/Stratus XL
@@ -485,12 +490,17 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x24c6, 0x592a ), k_eControllerType_XBoxOneController, NULL },	// BDA XB1 Spectra Pro
 	{ MAKE_CONTROLLER_ID( 0x24c6, 0x791a ), k_eControllerType_XBoxOneController, NULL },	// PowerA Fusion Fight Pad
 	{ MAKE_CONTROLLER_ID( 0x2dc8, 0x2002 ), k_eControllerType_XBoxOneController, NULL },	// 8BitDo Ultimate Wired Controller for Xbox
+	{ MAKE_CONTROLLER_ID( 0x2dc8, 0x200a ), k_eControllerType_XBoxOneController, NULL },	// 8BitDo M30 Wired Controller for Xbox
+	{ MAKE_CONTROLLER_ID( 0x2dc8, 0x201e ), k_eControllerType_XBoxOneController, NULL },    // 8BitDo Pro 2 Wired Controller for Xbox
 	{ MAKE_CONTROLLER_ID( 0x2dc8, 0x3106 ), k_eControllerType_XBoxOneController, NULL },	// 8BitDo Ultimate Wired Controller. Windows, Android, Switch.
 	{ MAKE_CONTROLLER_ID( 0x2dc8, 0x310a ), k_eControllerType_XBoxOneController, NULL },	// 8BitDo Ultimate 2C Wireless Controller
+	{ MAKE_CONTROLLER_ID( 0x2e24, 0x0423 ), k_eControllerType_XBoxOneController, NULL },	// Hyperkin DuchesS
 	{ MAKE_CONTROLLER_ID( 0x2e24, 0x0652 ), k_eControllerType_XBoxOneController, NULL },	// Hyperkin Duke
+	{ MAKE_CONTROLLER_ID( 0x2e24, 0x072e ), k_eControllerType_XBoxOneController, NULL },    // Hyperkin Xenon
 	{ MAKE_CONTROLLER_ID( 0x2e24, 0x1618 ), k_eControllerType_XBoxOneController, NULL },	// Hyperkin Duke
 	{ MAKE_CONTROLLER_ID( 0x2e24, 0x1688 ), k_eControllerType_XBoxOneController, NULL },	// Hyperkin X91
 	{ MAKE_CONTROLLER_ID( 0x146b, 0x0611 ), k_eControllerType_XBoxOneController, NULL },	// Xbox Controller Mode for NACON Revolution 3
+	{ MAKE_CONTROLLER_ID( 0x3537, 0x109c ), k_eControllerType_XBoxOneController, "GameSir G7 Pro" },	// GameSir G7 Pro connected through its 2.4G dongle in Xbox mode
 
 	// These have been added via Minidump for unrecognized Xinput controller assert
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x1414 ), k_eControllerType_XBox360Controller, NULL },	// Unknown Controller
@@ -582,11 +592,6 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x2f24,	0x8f ), k_eControllerType_XBoxOneController, NULL },	// Unknown Controller
 	{ MAKE_CONTROLLER_ID( 0xe6f,	0xf501 ), k_eControllerType_XBoxOneController, NULL },	// Unknown Controller
 
-	//{ MAKE_CONTROLLER_ID( 0x1949, 0x0402 ), /*android*/, NULL },	// Unknown Controller
-
-	{ MAKE_CONTROLLER_ID( 0x05ac, 0x0001 ), k_eControllerType_AppleController, NULL },	// MFI Extended Gamepad (generic entry for iOS/tvOS)
-	{ MAKE_CONTROLLER_ID( 0x05ac, 0x0002 ), k_eControllerType_AppleController, NULL },	// MFI Standard Gamepad (generic entry for iOS/tvOS)
-
     { MAKE_CONTROLLER_ID( 0x057e, 0x2006 ), k_eControllerType_SwitchJoyConLeft, NULL },    // Nintendo Switch Joy-Con (Left)
     { MAKE_CONTROLLER_ID( 0x057e, 0x2067 ), k_eControllerType_SwitchJoyConLeft, NULL },    // Nintendo Switch 2 Joy-Con (Left)
     { MAKE_CONTROLLER_ID( 0x057e, 0x2007 ), k_eControllerType_SwitchJoyConRight, NULL },   // Nintendo Switch Joy-Con (Right)
@@ -626,7 +631,12 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0186 ), k_eControllerType_SwitchProController, NULL },        // PDP Afterglow Wireless Switch Controller - working gyro. USB is for charging only. Many later "Wireless" line devices w/ gyro also use this vid/pid
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0187 ), k_eControllerType_SwitchInputOnlyController, NULL },  // PDP Rockcandy Wired Controller
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0188 ), k_eControllerType_SwitchInputOnlyController, NULL },  // PDP Afterglow Wired Deluxe+ Audio Controller
+	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x018b ), k_eControllerType_SwitchInputOnlyController, NULL },  // PDP Afterglow Wave Wired/Wireless Controller for Switch
 	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x018c ), k_eControllerType_SwitchProController, "PDP REALMz Wireless Controller" },  // PDP REALMz Wireless Controller for Switch
+	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0193 ), k_eControllerType_Switch2ProController, NULL },  // Turtle Beach Afterglow Wireless RGB Gaming Controller for Nintendo Switch 2 and the Turtle Beach Rematch Wireless RGB Gaming Controller for Nintendo Switch 2
+	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0196 ), k_eControllerType_Switch2InputOnlyController, NULL },  // Turtle Beach Rematch Wired Controller for Nintendo Switch 2
+	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0197 ), k_eControllerType_Switch2InputOnlyController, NULL },  // Turtle Beach Afterglow Wave Wired Controller for Nintendo Switch 2
+	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x0198 ), k_eControllerType_Switch2InputOnlyController, NULL },  // Turtle Beach Afterglow Wired Controller for Switch 2
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x00aa ), k_eControllerType_SwitchInputOnlyController, NULL },  // HORI Real Arcade Pro V Hayabusa in Switch Mode
 	{ MAKE_CONTROLLER_ID( 0x20d6, 0xa711 ), k_eControllerType_SwitchInputOnlyController, NULL },  // PowerA Wired Controller Plus/PowerA Wired Controller Nintendo GameCube Style
 	{ MAKE_CONTROLLER_ID( 0x20d6, 0xa712 ), k_eControllerType_SwitchInputOnlyController, NULL },  // PowerA Nintendo Switch Fusion Fight Pad
@@ -638,6 +648,8 @@ static const ControllerDescription_t arrControllers[] = {
 	{ MAKE_CONTROLLER_ID( 0x33dd, 0x0001 ), k_eControllerType_SwitchInputOnlyController, NULL },  // ZUIKI MasCon for Nintendo Switch Black
 	{ MAKE_CONTROLLER_ID( 0x33dd, 0x0002 ), k_eControllerType_SwitchInputOnlyController, NULL },  // ZUIKI MasCon for Nintendo Switch ??
 	{ MAKE_CONTROLLER_ID( 0x33dd, 0x0003 ), k_eControllerType_SwitchInputOnlyController, NULL },  // ZUIKI MasCon for Nintendo Switch Red
+	{ MAKE_CONTROLLER_ID( 0x33dd, 0x0018 ), k_eControllerType_SwitchProController, NULL },  // ZUIKI Evotop Switch Wireless
+	{ MAKE_CONTROLLER_ID( 0x33dd, 0x0021 ), k_eControllerType_Switch2ProController, NULL },  // ZUIKI Evotop Axis Switch Wireless
 	{ MAKE_CONTROLLER_ID( 0x0f0d, 0x00f0 ), k_eControllerType_SwitchInputOnlyController, NULL },  // HORI Taiko Controller For Switch
 
 	{ MAKE_CONTROLLER_ID( 0x054c, 0x0df2 ), k_eControllerType_PS5EdgeController, NULL },    // Sony DualSense Edge Controller

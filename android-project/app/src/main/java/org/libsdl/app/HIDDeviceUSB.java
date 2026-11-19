@@ -19,8 +19,10 @@ class HIDDeviceUSB implements HIDDevice {
     protected UsbEndpoint mInputEndpoint;
     protected UsbEndpoint mOutputEndpoint;
     protected InputThread mInputThread;
-    protected boolean mRunning;
-    protected boolean mFrozen;
+    protected volatile boolean mRunning;
+    protected volatile boolean mFrozen;
+    protected final Object mFrozenLock = new Object();
+    protected volatile boolean mClaimed;
 
     public HIDDeviceUSB(HIDDeviceManager manager, UsbDevice usbDevice, int interface_index) {
         mManager = manager;
@@ -29,6 +31,7 @@ class HIDDeviceUSB implements HIDDevice {
         mInterface = mDevice.getInterface(mInterfaceIndex).getId();
         mDeviceId = manager.getDeviceIDForIdentifier(getIdentifier());
         mRunning = false;
+        mClaimed = false;
     }
 
     String getIdentifier() {
@@ -56,7 +59,7 @@ class HIDDeviceUSB implements HIDDevice {
         try {
             result = mDevice.getSerialNumber();
         }
-        catch (SecurityException exception) {
+        catch (Exception exception) {
             //Log.w(TAG, "App permissions mean we cannot get serial number for device " + getDeviceName() + " message: " + exception.getMessage());
         }
         if (result == null) {
@@ -114,6 +117,7 @@ class HIDDeviceUSB implements HIDDevice {
             close();
             return false;
         }
+        mClaimed = true;
 
         // Find the endpoints
         for (int j = 0; j < iface.getEndpointCount(); j++) {
@@ -137,6 +141,7 @@ class HIDDeviceUSB implements HIDDevice {
         // back to the Android system gamepad functionality (and lose our paddles et al).
         if (mInputEndpoint == null) {
             Log.w(TAG, "Missing required endpoint on USB device " + getDeviceName());
+            mConnection.releaseInterface(iface);
             close();
             return false;
         }
@@ -153,6 +158,11 @@ class HIDDeviceUSB implements HIDDevice {
     public int writeReport(byte[] report, boolean feature) {
         if (mConnection == null) {
             Log.w(TAG, "writeReport() called with no device connection");
+            return -1;
+        }
+
+        if (!mClaimed) {
+            Log.w(TAG, "writeReport() called but some other process currently owns the USB device");
             return -1;
         }
 
@@ -212,6 +222,12 @@ class HIDDeviceUSB implements HIDDevice {
             Log.w(TAG, "readReport() called with no device connection");
             return false;
         }
+        if (!mClaimed) {
+            if (feature) {
+                return false;
+            }
+            return true;            
+        }
 
         if (report_number == 0x0) {
             /* Offset the return buffer by 1, so that the report ID
@@ -265,10 +281,13 @@ class HIDDeviceUSB implements HIDDevice {
             mInputThread = null;
         }
         if (mConnection != null) {
-            UsbInterface iface = mDevice.getInterface(mInterfaceIndex);
-            mConnection.releaseInterface(iface);
+            if (mClaimed) {
+                UsbInterface iface = mDevice.getInterface(mInterfaceIndex);
+                mConnection.releaseInterface(iface);                
+            }
             mConnection.close();
             mConnection = null;
+            mClaimed = false;
         }
     }
 
@@ -280,7 +299,42 @@ class HIDDeviceUSB implements HIDDevice {
 
     @Override
     public void setFrozen(boolean frozen) {
-        mFrozen = frozen;
+        synchronized (mFrozenLock) {
+            mFrozen = frozen;
+            mFrozenLock.notifyAll();
+        }
+    }
+
+    // Release our claim on the interface while we're frozen so the system can use the device, and
+    // reclaim it when we're unfrozen. This is called on the input thread so the UI thread never blocks
+    // on USB calls.
+    protected void waitWhileFrozen() {
+        UsbInterface iface = mDevice.getInterface(mInterfaceIndex);
+        if (mClaimed) {
+            if (mConnection.releaseInterface(iface)) {
+                mClaimed = false;
+            } else {
+                Log.e(TAG, "Tried to release claim on USB device, but failed!");
+            }
+        }
+
+        synchronized (mFrozenLock) {
+            while (mRunning && mFrozen) {
+                try {
+                    mFrozenLock.wait();
+                } catch (InterruptedException e) {
+                    // close() interrupts us when it's time to stop
+                }
+            }
+        }
+
+        if (mRunning && !mClaimed) {
+            if (mConnection.claimInterface(iface, true)) {
+                mClaimed = true;
+            } else {
+                Log.e(TAG, "Tried to regain claim on USB device, but failed!");
+            }
+        }
     }
 
     protected class InputThread extends Thread {
@@ -289,6 +343,11 @@ class HIDDeviceUSB implements HIDDevice {
             int packetSize = mInputEndpoint.getMaxPacketSize();
             byte[] packet = new byte[packetSize];
             while (mRunning) {
+                if (mFrozen) {
+                    waitWhileFrozen();
+                    continue;
+                }
+
                 int r;
                 try
                 {

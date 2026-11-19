@@ -38,6 +38,10 @@
 #include "D3D11_PixelShader_Colors.h"
 #undef g_main
 
+#define g_main D3D11_PixelShader_Colors_PQ
+#include "D3D11_PixelShader_Colors_PQ.h"
+#undef g_main
+
 #define g_main D3D11_PixelShader_Textures
 #include "D3D11_PixelShader_Textures.h"
 #undef g_main
@@ -58,6 +62,7 @@ static struct
 } D3D11_shaders[] = {
     { NULL, 0 },
     { D3D11_PixelShader_Colors, sizeof(D3D11_PixelShader_Colors) },
+    { D3D11_PixelShader_Colors_PQ, sizeof(D3D11_PixelShader_Colors_PQ) },
     { D3D11_PixelShader_Textures, sizeof(D3D11_PixelShader_Textures) },
     { D3D11_PixelShader_Advanced, sizeof(D3D11_PixelShader_Advanced) },
 };

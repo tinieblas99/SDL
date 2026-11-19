@@ -44,6 +44,9 @@ static const CameraBootStrap *const bootstrap[] = {
 #ifdef SDL_CAMERA_DRIVER_ANDROID
     &ANDROIDCAMERA_bootstrap,
 #endif
+#ifdef SDL_CAMERA_DRIVER_OPENHARMONY
+    &OPENHARMONYCAMERA_bootstrap,
+#endif
 #ifdef SDL_CAMERA_DRIVER_EMSCRIPTEN
     &EMSCRIPTENCAMERA_bootstrap,
 #endif
@@ -623,7 +626,7 @@ void SDL_CameraPermissionOutcome(SDL_Camera *device, bool approved)
 
 typedef struct FindOnePhysicalCameraByCallbackData
 {
-    bool (*callback)(SDL_Camera *device, void *userdata);
+    bool (*callback)(void *userdata, SDL_Camera *device);
     void *userdata;
     SDL_Camera *device;
 } FindOnePhysicalCameraByCallbackData;
@@ -632,21 +635,19 @@ static bool SDLCALL FindOnePhysicalCameraByCallback(void *userdata, const SDL_Ha
 {
     FindOnePhysicalCameraByCallbackData *data = (FindOnePhysicalCameraByCallbackData *) userdata;
     SDL_Camera *device = (SDL_Camera *) value;
-    if (data->callback(device, data->userdata)) {
+    if (data->callback(data->userdata, device)) {
         data->device = device;
         return false;  // stop iterating.
     }
     return true;  // keep iterating.
 }
 
-// !!! FIXME: this doesn't follow SDL convention of `userdata` being the first param of the callback.
-SDL_Camera *SDL_FindPhysicalCameraByCallback(bool (*callback)(SDL_Camera *device, void *userdata), void *userdata)
+SDL_Camera *SDL_FindPhysicalCameraByCallback(bool (*callback)(void *userdata, SDL_Camera *device), void *userdata)
 {
     if (!SDL_GetCurrentCameraDriver()) {
         SDL_SetError("Camera subsystem is not initialized");
         return NULL;
     }
-
 
     FindOnePhysicalCameraByCallbackData data = { callback, userdata, NULL };
     SDL_LockRWLockForReading(camera_driver.device_hash_lock);
@@ -1028,7 +1029,7 @@ bool SDL_PrepareCameraSurfaces(SDL_Camera *device)
         const bool downscaling_first = (device->needs_scaling < 0);
         const SDL_CameraSpec *s = downscaling_first ? appspec : devspec;
         const SDL_PixelFormat fmt = downscaling_first ? devspec->format : appspec->format;
-        device->conversion_surface = SDL_CreateSurface(s->width, s->height, fmt);
+        device->conversion_surface = SDL_CreateSurfaceUninitialized(s->width, s->height, fmt);
         if (!device->conversion_surface) {
             goto failed;
         }
@@ -1047,7 +1048,7 @@ bool SDL_PrepareCameraSurfaces(SDL_Camera *device)
     for (int i = 0; i < SDL_arraysize(device->output_surfaces); i++) {
         SDL_Surface *surf;
         if (device->needs_scaling || device->needs_conversion) {
-            surf = SDL_CreateSurface(appspec->width, appspec->height, appspec->format);
+            surf = SDL_CreateSurfaceUninitialized(appspec->width, appspec->height, appspec->format);
         } else {
             surf = SDL_CreateSurfaceFrom(appspec->width, appspec->height, appspec->format, NULL, 0);
         }
@@ -1477,7 +1478,7 @@ static void SDLCALL DestroyCameraHashItem(void *userdata, const void *key, const
     SDL_free(device);
 }
 
-bool SDL_CameraInit(const char *driver_name)
+bool SDL_InitCamera(const char *driver_name)
 {
     if (SDL_GetCurrentCameraDriver()) {
         SDL_QuitCamera(); // shutdown driver if already running.

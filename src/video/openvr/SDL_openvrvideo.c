@@ -34,13 +34,21 @@
 #include "../SDL_egl_c.h"
 #include "SDL_openvrvideo.h"
 
+#ifdef SDL_VIDEO_DRIVER_WINDOWS
+// Currently only OpenGL, not EGL, is supported on Windows
 #include <SDL3/SDL_opengl.h>
+#else
+// Currently only EGL, not OpenGL, is supported on other platforms
+#include <SDL3/SDL_opengles2.h>
+#include <SDL3/SDL_opengles2_gl2.h>
+#endif
 
 #ifdef SDL_VIDEO_DRIVER_WINDOWS
-#include "../windows/SDL_windowsopengles.h"
 #include "../windows/SDL_windowsopengl.h"
 #include "../windows/SDL_windowsvulkan.h"
+
 #define DEFAULT_OPENGL "OPENGL32.DLL"
+
 static bool OPENVR_GL_LoadLibrary(SDL_VideoDevice *_this, const char *path);
 static SDL_GLContext OPENVR_GL_CreateContext(SDL_VideoDevice *_this, SDL_Window *window);
 
@@ -48,10 +56,9 @@ struct SDL_GLContextState
 {
     HGLRC hglrc;
 };
+#endif // SDL_VIDEO_DRIVER_WINDOWS
 
-#else
-#include <SDL3/SDL_opengles2_gl2.h>
-#endif
+
 
 #ifdef SDL_PLATFORM_WINDOWS
 #define SDL_OPENVR_DRIVER_DYNAMIC "openvr_api.dll"
@@ -617,6 +624,7 @@ static bool OPENVR_InitializeOverlay(SDL_VideoDevice *_this, SDL_Window *window)
         if (hint && *hint) {
             overlay_flags = SDL_atoi(hint);
         } else {
+            overlay_flags |= (1 << 17); //vr::VROverlayFlags_SendVRSmoothScrollEvents
             overlay_flags |= (1 << 23); //vr::VROverlayFlags_EnableControlBar
             overlay_flags |= (1 << 24); //vr::VROverlayFlags_EnableControlBarKeyboard
             overlay_flags |= (1 << 25); //vr::VROverlayFlags_EnableControlBarClose
@@ -1240,12 +1248,23 @@ static bool OPENVR_GL_SwapWindow(SDL_VideoDevice *_this, SDL_Window *window)
     return true;
 }
 
+static Uint8 OPENVR_MapMouseButton(int btn)
+{
+    if (btn == EVRMouseButton_VRMouseButton_Right) {
+        return SDL_BUTTON_RIGHT;
+    } else if (btn == EVRMouseButton_VRMouseButton_Middle) {
+        return SDL_BUTTON_MIDDLE;
+    } else {
+        return SDL_BUTTON_LEFT;
+    }
+}
+
 static void OPENVR_HandleMouse(float x, float y, int btn, int evt)
 {
     if (evt == 2) {
         SDL_SendMouseMotion(0, NULL, SDL_GLOBAL_MOUSE_ID, false, x, y);
     } else {
-        const Uint8 button = SDL_BUTTON_LEFT + btn;
+        const Uint8 button = OPENVR_MapMouseButton(btn);
         const bool down = (evt != 0);
         SDL_SendMouseButton(0, NULL, SDL_GLOBAL_MOUSE_ID, button, down);
     }
@@ -1467,10 +1486,14 @@ static void OPENVR_PumpEvents(SDL_VideoDevice *_this)
                 OPENVR_HandleMouse(nEvent.data.mouse.x, videodata->targh - nEvent.data.mouse.y, nEvent.data.mouse.button, 2);
                 break;
             case EVREventType_VREvent_MouseButtonDown:
-                OPENVR_HandleMouse(nEvent.data.mouse.x, videodata->targh - nEvent.data.mouse.y, 0, 1);
+                OPENVR_HandleMouse(nEvent.data.mouse.x, videodata->targh - nEvent.data.mouse.y, nEvent.data.mouse.button, 1);
                 break;
             case EVREventType_VREvent_MouseButtonUp:
-                OPENVR_HandleMouse(nEvent.data.mouse.x, videodata->targh - nEvent.data.mouse.y, 0, 0);
+                OPENVR_HandleMouse(nEvent.data.mouse.x, videodata->targh - nEvent.data.mouse.y, nEvent.data.mouse.button, 0);
+                break;
+            case EVREventType_VREvent_ScrollSmooth:
+            case EVREventType_VREvent_ScrollDiscrete:
+                SDL_SendMouseWheel(0, NULL, SDL_GLOBAL_MOUSE_ID, -nEvent.data.scroll.xdelta, nEvent.data.scroll.ydelta, SDL_MOUSEWHEEL_NORMAL);
                 break;
             case EVREventType_VREvent_KeyboardCharInput:
                 SDL_SendKeyboardUnicodeKey(SDL_GetTicksNS(), nEvent.data.keyboard.cNewInput[0]);
@@ -1487,7 +1510,7 @@ static void OPENVR_PumpEvents(SDL_VideoDevice *_this)
                 break;
             case EVREventType_VREvent_OverlayClosed:
             case EVREventType_VREvent_Quit:
-                SDL_Quit();
+                SDL_SendQuit();
                 break;
             }
         }
@@ -1626,16 +1649,8 @@ static SDL_VideoDevice *OPENVR_CreateDevice(void)
     device->GL_GetSwapInterval = OPENVR_GL_GetSwapInterval;
     device->GL_SwapWindow = OPENVR_GL_SwapWindow;
     device->GL_DestroyContext = OPENVR_GL_DestroyContext;
-#elif SDL_VIDEO_OPENGL_EGL
-    device->GL_LoadLibrary = WIN_GLES_LoadLibrary;
-    device->GL_GetProcAddress = WIN_GLES_GetProcAddress;
-    device->GL_UnloadLibrary = WIN_GLES_UnloadLibrary;
-    device->GL_CreateContext = WIN_GLES_CreateContext;
-    device->GL_MakeCurrent = WIN_GLES_MakeCurrent;
-    device->GL_SetSwapInterval = WIN_GLES_SetSwapInterval;
-    device->GL_GetSwapInterval = WIN_GLES_GetSwapInterval;
-    device->GL_SwapWindow = WIN_GLES_SwapWindow;
-    device->GL_DestroyContext = WIN_GLES_DestroyContext;
+#else
+#error Needs more work to support EGL
 #endif
 #else
     device->GL_LoadLibrary = OVR_EGL_LoadLibrary;

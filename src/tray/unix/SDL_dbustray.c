@@ -88,8 +88,6 @@ static DBusHandlerResult TrayHandleGetAllProps(SDL_Tray *tray, SDL_TrayDBus *tra
     dbus_uint32_t uint32_val;
     dbus_bool_t bool_value;
 
-    menu_dbus = (SDL_TrayMenuDBus *)tray->menu->internal;
-
     empty = "";
     driver->dbus->message_iter_init(msg, &iter);
     driver->dbus->message_iter_get_basic(&iter, &interface);
@@ -107,10 +105,11 @@ static DBusHandlerResult TrayHandleGetAllProps(SDL_Tray *tray, SDL_TrayDBus *tra
     driver->dbus->message_iter_close_container(&dict_iter, &entry_iter);
 
     key = "Id";
+    value = SDL_GetAppID();
     driver->dbus->message_iter_open_container(&dict_iter, DBUS_TYPE_DICT_ENTRY, NULL, &entry_iter);
     driver->dbus->message_iter_append_basic(&entry_iter, DBUS_TYPE_STRING, &key);
     driver->dbus->message_iter_open_container(&entry_iter, DBUS_TYPE_VARIANT, "s", &variant_iter);
-    driver->dbus->message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &tray_dbus->service_name);
+    driver->dbus->message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &value);
     driver->dbus->message_iter_close_container(&entry_iter, &variant_iter);
     driver->dbus->message_iter_close_container(&dict_iter, &entry_iter);
 
@@ -149,7 +148,7 @@ static DBusHandlerResult TrayHandleGetAllProps(SDL_Tray *tray, SDL_TrayDBus *tra
     driver->dbus->message_iter_close_container(&dict_iter, &entry_iter);
 
     key = "ItemIsMenu";
-    menu_dbus = (SDL_TrayMenuDBus *)tray->menu->internal;
+    menu_dbus = tray->menu ? (SDL_TrayMenuDBus *)tray->menu->internal : NULL;
     if (menu_dbus && menu_dbus->menu_path) {
         bool_value = TRUE;
     } else {
@@ -234,7 +233,7 @@ static DBusHandlerResult TrayHandleGetProp(SDL_Tray *tray, SDL_TrayDBus *tray_db
     const char *empty;
     dbus_bool_t bool_value;
 
-    menu_dbus = (SDL_TrayMenuDBus *)tray->menu->internal;
+    menu_dbus = tray->menu ? (SDL_TrayMenuDBus *)tray->menu->internal : NULL;
 
     empty = "";
     driver->dbus->message_iter_init(msg, &iter);
@@ -251,8 +250,9 @@ static DBusHandlerResult TrayHandleGetProp(SDL_Tray *tray, SDL_TrayDBus *tray_db
         driver->dbus->message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &value);
         driver->dbus->message_iter_close_container(&iter, &variant_iter);
     } else if (!SDL_strcmp(property, "Id")) {
+		value = SDL_GetAppID();
         driver->dbus->message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "s", &variant_iter);
-        driver->dbus->message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &tray_dbus->service_name);
+        driver->dbus->message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &value);
         driver->dbus->message_iter_close_container(&iter, &variant_iter);
     } else if (!SDL_strcmp(property, "Title")) {
         driver->dbus->message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "s", &variant_iter);
@@ -553,7 +553,11 @@ void DestroyMenu(SDL_TrayMenu *menu)
                 DestroyMenu(entry_dbus->sub_menu);
                 entry_dbus->sub_menu = NULL;
             }
+            if (entry_dbus->item->utf8) {
+                SDL_free((void*)entry_dbus->item->utf8);
+            }
             SDL_free(item);
+            SDL_free(entry_dbus);
             SDL_free(entry);
 
             cursor = cursor->next;
@@ -839,7 +843,13 @@ SDL_TrayEntry *InsertTrayEntryAt(SDL_TrayMenu *menu, int pos, const char *label,
     entry->parent = menu;
     entry->internal = entry_dbus;
     entry_dbus->item = SDL_DBus_CreateMenuItem();
-    entry_dbus->item->utf8 = label;
+    
+    if (label) {
+        entry_dbus->item->utf8 = SDL_strdup(label);
+    } else {
+        entry_dbus->item->utf8 = NULL;
+    }
+    
     if (!label) {
         entry_dbus->item->type = SDL_MENU_ITEM_TYPE_SEPERATOR;
     } else if (flags & SDL_TRAYENTRY_CHECKBOX) {
@@ -959,6 +969,9 @@ void RemoveTrayEntry(SDL_TrayEntry *entry)
     DestroyMenu(entry_dbus->sub_menu);
     SDL_ListRemove(&menu_dbus->menu, entry_dbus->item);
     SDL_free(entry_dbus->item);
+    if (entry_dbus->item->utf8) {
+        SDL_free((void*)entry_dbus->item->utf8);
+    }
     SDL_free(entry_dbus);
     SDL_free(entry);
 
@@ -1013,7 +1026,15 @@ void SetTrayEntryLabel(SDL_TrayEntry *entry, const char *label)
     entry_dbus = (SDL_TrayEntryDBus *)entry->internal;
     main_menu_dbus = (SDL_TrayMenuDBus *)tray->menu->internal;
 
-    entry_dbus->item->utf8 = label;
+    if (entry_dbus->item->utf8) {
+        SDL_free((void*)entry_dbus->item->utf8);
+    }
+
+    if (label) {
+        entry_dbus->item->utf8 = (const char*)SDL_strdup(label);
+    } else {
+        entry_dbus->item->utf8 = NULL;
+    }
 
     SDL_DBus_UpdateMenu(driver->dbus, tray_dbus->connection, main_menu_dbus->menu, main_menu_dbus->menu_path, TrayNewMenuOnMenuUpdateCallback, tray, SDL_DBUS_UPDATE_MENU_FLAGS_NONE);
 }

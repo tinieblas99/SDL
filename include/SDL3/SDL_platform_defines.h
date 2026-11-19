@@ -112,6 +112,18 @@
 #undef SDL_PLATFORM_LINUX
 #endif
 
+#if defined(__OHOS__)
+
+/**
+ * A preprocessor macro that is only defined if compiling for
+ * OpenHarmony/HarmonyOS.
+ *
+ * \since This macro is available since SDL 3.6.0.
+ */
+#define SDL_PLATFORM_OPENHARMONY 1
+#undef SDL_PLATFORM_LINUX
+#endif
+
 #if defined(__unix__) || defined(__unix) || defined(unix)
 
 /**
@@ -221,9 +233,9 @@
  */
 #define SDL_PLATFORM_MACOS 1
 
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 1070
-    #error SDL for macOS only supports deploying on 10.7 and above.
-#endif /* MAC_OS_X_VERSION_MIN_REQUIRED < 1070 */
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+    #error SDL for macOS only supports deploying on 10.12 and above.
+#endif /* MAC_OS_X_VERSION_MIN_REQUIRED < 101200 */
 #endif /* TARGET_OS_IPHONE */
 #endif /* defined(__APPLE__) */
 

@@ -26,6 +26,7 @@ typedef enum
 {
     SHADER_NONE,
     SHADER_SOLID,
+    SHADER_SOLID_PQ,
     SHADER_RGB,
     SHADER_ADVANCED,
     NUM_SHADERS
